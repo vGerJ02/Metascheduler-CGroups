@@ -1,0 +1,43 @@
+FROM apache/hadoop:3
+
+COPY systemctl.py /usr/bin/systemctl
+
+RUN sudo chmod a+x /usr/bin/systemctl \
+ && sudo sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-* \
+ && sudo sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* \
+ && sudo yum clean all && sudo yum makecache fast \
+ && sudo yum install -y openssh-server less psmisc \
+ && sudo useradd -m -G users,hadoop metascheduler \
+ && sudo mkdir -p /home/metascheduler/.ssh \
+ && sudo chown metascheduler:metascheduler /home/metascheduler/.ssh \
+ && sudo chmod 700 /home/metascheduler/.ssh \
+ && sudo ssh-keygen -A \
+ && sudo sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+ && sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+RUN sudo yum install -y java-1.8.0-openjdk-devel
+
+COPY id_ed25519_sge.pub /home/metascheduler/.ssh/authorized_keys
+
+USER root
+
+RUN yum install -y sudo \
+ && echo "metascheduler ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/metascheduler \
+ && chmod 0440 /etc/sudoers.d/metascheduler
+
+
+RUN chown metascheduler:metascheduler /home/metascheduler/.ssh/authorized_keys \
+    && chmod 600 /home/metascheduler/.ssh/authorized_keys
+
+COPY 1000000.txt /home/metascheduler/1000000.txt
+COPY 5000000.txt /home/metascheduler/5000000.txt
+COPY 10000000.txt /home/metascheduler/10000000.txt
+COPY 15000000.txt /home/metascheduler/15000000.txt
+
+EXPOSE 22
+
+COPY start.sh /start.sh
+RUN sudo chmod +x /start.sh
+
+ENTRYPOINT ["/start.sh"]
+#ENTRYPOINT ["yarn", "nodemanager"]
+#CMD ["yarn", "nodemanager"]

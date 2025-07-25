@@ -1,0 +1,39 @@
+FROM ensemblorg/ensembl-hive-sge
+
+ENV SGE_ROOT=/opt/sge
+ENV PATH=/opt/sge/bin/lx-amd64:$PATH
+ENV SGE_CELL=default
+
+RUN useradd -m metascheduler \
+    && echo "metascheduler:metascheduler" | chpasswd \
+    && usermod -aG sudo metascheduler
+
+RUN mkdir -p /home/metascheduler/.ssh \
+    && chown metascheduler:metascheduler /home/metascheduler/.ssh \
+    && chmod 700 /home/metascheduler/.ssh
+
+RUN ssh-keygen -A \
+    && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/#AuthorizedKeysFile/AuthorizedKeysFile/' /etc/ssh/sshd_config
+
+COPY id_ed25519_sge.pub /home/metascheduler/.ssh/authorized_keys
+RUN chown metascheduler:metascheduler /home/metascheduler/.ssh/authorized_keys \
+    && chmod 600 /home/metascheduler/.ssh/authorized_keys
+
+COPY test_job.c /home/metascheduler/test_job.c
+COPY test_job100000000.sh /home/metascheduler/test_job100000000.sh
+COPY test_job1000000000.sh /home/metascheduler/test_job1000000000.sh
+COPY test_job10000000000.sh /home/metascheduler/test_job10000000000.sh
+COPY test_job100000000000.sh /home/metascheduler/test_job100000000000.sh
+
+RUN chown -R metascheduler:metascheduler /home/metascheduler \
+    && chmod +x /home/metascheduler/*.sh
+
+COPY start_sge.sh /start_sge.sh
+RUN chmod +x /start_sge.sh
+
+EXPOSE 22
+
+CMD ["/start_sge.sh"]
+#CMD ["service", "ssh", "start", "-D", "-d", "-e", "-f", "/etc/ssh/sshd_config"]

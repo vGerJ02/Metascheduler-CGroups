@@ -1,0 +1,1 @@
+SGE i HAdoops implementats en 1 sol node, falta fer que al update del hadoop es vegi al client el scheduler job id

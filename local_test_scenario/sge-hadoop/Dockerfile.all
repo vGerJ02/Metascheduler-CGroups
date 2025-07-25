@@ -1,0 +1,79 @@
+FROM ensemblorg/ensembl-hive-sge
+
+ENV SGE_ROOT=/opt/sge
+ENV PATH=/opt/sge/bin/lx-amd64:$PATH
+ENV SGE_CELL=default
+
+# Instal·lar paquets bàsics: openjdk8, ssh, sudo, etc.
+RUN apt-get update && apt-get install -y \
+    openssh-server less psmisc openjdk-8-jdk sudo ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Crear usuari metascheduler amb sudo
+RUN useradd -m -s /bin/bash metascheduler \
+    && echo "metascheduler:metascheduler" | chpasswd \
+    && usermod -aG sudo metascheduler
+
+# Configurar SSH per l'usuari metascheduler
+RUN mkdir -p /home/metascheduler/.ssh \
+    && chown metascheduler:metascheduler /home/metascheduler/.ssh \
+    && chmod 700 /home/metascheduler/.ssh
+
+COPY id_ed25519_sge.pub /home/metascheduler/.ssh/authorized_keys
+RUN chown metascheduler:metascheduler /home/metascheduler/.ssh/authorized_keys \
+    && chmod 600 /home/metascheduler/.ssh/authorized_keys
+
+RUN ssh-keygen -A \
+    && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+# Donar permisos sudo sense password a metascheduler
+RUN echo "metascheduler ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/metascheduler \
+    && chmod 0440 /etc/sudoers.d/metascheduler
+
+# Baixar i instal·lar Hadoop 3.3.5 (per exemple)
+ENV HADOOP_VERSION=3.3.5
+ENV HADOOP_URL=https://downloads.apache.org/hadoop/common/hadoop-$HADOOP_VERSION/hadoop-$HADOOP_VERSION.tar.gz
+ENV HADOOP_HOME=/opt/hadoop
+
+RUN curl -fsSL $HADOOP_URL -o /tmp/hadoop.tar.gz \
+    && tar -xzf /tmp/hadoop.tar.gz -C /opt/ \
+    && mv /opt/hadoop-$HADOOP_VERSION $HADOOP_HOME \
+    && rm /tmp/hadoop.tar.gz
+
+ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+# Copiar fitxers i scripts SGE i Hadoop
+COPY test_job.c /home/metascheduler/test_job.c
+COPY test_job100000000.sh /home/metascheduler/test_job100000000.sh
+COPY test_job1000000000.sh /home/metascheduler/test_job1000000000.sh
+COPY test_job10000000000.sh /home/metascheduler/test_job10000000000.sh
+COPY test_job100000000000.sh /home/metascheduler/test_job100000000000.sh
+
+RUN chown -R metascheduler:metascheduler /home/metascheduler \
+    && chmod +x /home/metascheduler/*.sh
+
+COPY 1000000.txt /home/metascheduler/1000000.txt
+COPY 5000000.txt /home/metascheduler/5000000.txt
+COPY 10000000.txt /home/metascheduler/10000000.txt
+COPY 15000000.txt /home/metascheduler/15000000.txt
+
+COPY hadoop-config/*.xml $HADOOP_HOME/etc/hadoop/
+
+RUN echo "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh
+
+RUN echo "HDFS_NAMENODE_USER=metascheduler" >> /etc/environment && \
+    echo "YARN_NODEMANAGER_USER=metascheduler" >> /etc/environment
+
+
+RUN echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config
+
+COPY start-all.sh /start-all.sh
+RUN chmod +x /start-all.sh
+
+EXPOSE 22 9870 8088 9000 19888
+
+USER root
+#CMD ["/start-all.sh"]
+CMD ["/bin/bash", "/start-all.sh"]
+

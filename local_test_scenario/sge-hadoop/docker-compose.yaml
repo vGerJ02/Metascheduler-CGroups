@@ -1,0 +1,17 @@
+services:
+  cgroup-sge-hadoop:
+    build:
+      context: .
+      dockerfile: Dockerfile.all
+    container_name: cgroup-sge-hadoop
+    privileged: true
+    ports:
+      - "8088:8088"   # ResourceManager Web UI
+      - "8042:8042"   # NodeManager Web UI
+      - "3000:22"   # Si tens alguna API
+      - "9870:9870"   # web NameNode
+      - "9000:9000"   # fs.defaultFS
+    volumes:
+      - ./logs:/opt/hadoop/logs
+      #Cgroups:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw

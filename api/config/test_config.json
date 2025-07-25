@@ -1,0 +1,30 @@
+{
+    "cluster": {
+        "policy": {
+            "name": "best_effort",
+            "highest_priority": "0"
+        },
+        "nodes": [
+            {
+                "ip": "localhost",
+                "port": "3000"
+            },
+            {
+                "ip": "localhost",
+                "port": "3000"
+            }
+        ],
+        "schedulers": [
+            {
+                "name": "Apache Hadoop",
+                "master": "1",
+                "weight": "50"
+            },
+            {
+                "name": "SGE",
+                "master": "0",
+                "weight": "50"
+            }
+        ]
+    }
+}
