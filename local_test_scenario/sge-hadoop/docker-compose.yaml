@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.all
     container_name: cgroup-sge-hadoop
+    cap_add:
+      - SYS_ADMIN
     privileged: true
     ports:
       - "8088:8088"   # ResourceManager Web UI

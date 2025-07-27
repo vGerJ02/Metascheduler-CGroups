@@ -7,8 +7,9 @@ from api.routers.jobs import update_job_status, set_job_scheduler_job_id
 import re
 
 HADOOP_HOME = '/opt/hadoop'
-#JAVA_HOME = '/usr/lib/jvm/jre/'
-JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64"
+# JAVA_HOME = '/usr/lib/jvm/jre/'
+JAVA_HOME = "/usr/lib/jvm/java-8-openjdk-amd64"
+
 
 # export JAVA_HOME=/usr/lib/jvm/jre/ && /opt/hadoop/bin/yarn jar /opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar pi 2 4
 
@@ -202,3 +203,19 @@ class ApacheHadoop(Scheduler):
                 if actual_nice == 0:
                     continue
                 node.send_command(f'renice 0 {pid}')
+
+    def get_hadoop_process_tree(self) -> list[str]:
+        cmd = (
+            "bash -c '"
+            "PIDS=$(jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell\" | awk \"{print \\$1}\") && "
+            "ps -eo pid,ppid > /tmp/all_procs.txt && "
+            "ALL_PIDS=\"\" && "
+            "for PID in $PIDS; do "
+            "  CHILDREN=$(awk -v p=$PID \"$2==p {print \\$1}\" /tmp/all_procs.txt); "
+            "  ALL_PIDS=\"$ALL_PIDS $CHILDREN $PID\"; "
+            "done && "
+            "echo $ALL_PIDS | tr \" \" \"\\n\" | sort -n | uniq | tac"
+            "'"
+        )
+        output = self.master_node.send_command(cmd)
+        return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]

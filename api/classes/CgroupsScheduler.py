@@ -1,3 +1,4 @@
+import time
 from copy import deepcopy
 from time import sleep
 
@@ -30,7 +31,10 @@ class CgroupsScheduler(Scheduler):
         self.sge.set_master_node(sge_node)
         self.hadoop.set_master_node(hadoop_node)
         self._create_cgroups()
+        time.sleep(0.5)
 
+        # Assignar processos Hadoop persistents al grup
+        self.assign_hadoop_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop", )
 
     def set_nodes(self, nodes: List[Node]):
         self.nodes = nodes
@@ -54,11 +58,11 @@ class CgroupsScheduler(Scheduler):
 
             # Crear els cgroups sge i hadoop
             "sudo mkdir -p /sys/fs/cgroup/sge",
-            "sudo mkdir -p /sys/fs/cgroup/hadoop",
+            "#sudo mkdir -p /sys/fs/cgroup/hadoop",
 
             # 3. Activar controladors també dins els subgrups (opcional)
             "sudo sh -c \"echo '+cpu +memory' > /sys/fs/cgroup/sge/cgroup.subtree_control\"",
-            "sudo sh -c \"echo '+cpu +memory' > /sys/fs/cgroup/hadoop/cgroup.subtree_control\"",
+            "#sudo sh -c \"echo '+cpu +memory' > /sys/fs/cgroup/hadoop/cgroup.subtree_control\"",
         ]
 
         for cmd in cmds:
@@ -71,6 +75,11 @@ class CgroupsScheduler(Scheduler):
                 pass
             elif job.scheduler_type == "H":
                 self.hadoop.queue_job(job)
+
+                # Assignar els nous processos Hadoop al cgroup
+                time.sleep(0.5)
+                hadoop_job_pids = self.hadoop.get_hadoop_process_tree()
+                self.assign_hadoop_to_cgroup(hadoop_job_pids, "hadoop", )
             else:
                 raise ValueError("Unknown scheduler type")
         else:
@@ -95,3 +104,33 @@ class CgroupsScheduler(Scheduler):
 
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
+
+    def assign_hadoop_to_cgroup(self, pids: list[str], sub_cgroup_name: str = "hadoop"):
+        """
+        Per cada PID de Hadoop, troba el seu cgroup path, crea un subcgroup dins d'aquest
+        i mou el PID a aquest subcgroup per gestionar-lo.
+        """
+        for pid in pids:
+            # 1. Obtenim el path cgroup del PID (cgroup v2)
+            get_cgroup_path_cmd = f"cat /proc/{pid}/cgroup | grep '^0::' | cut -d: -f3"
+            cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
+            if not cgroup_rel_path:
+                print(f"⚠️ No s'ha trobat cgroup per PID {pid}")
+                continue
+
+            base_cgroup_path = f"/sys/fs/cgroup{cgroup_rel_path}"
+            print("PAthh" + base_cgroup_path)
+            target_sub_cgroup = f"{base_cgroup_path}/{sub_cgroup_name}"
+
+            # 2. Comandes a executar:
+            cmds = [
+                f"mkdir -p '{target_sub_cgroup}'",
+                # activar controllers al cgroup pare per permetre subcgroups
+                f"echo '+cpu +memory +io' | sudo tee '{base_cgroup_path}/cgroup.subtree_control' || true",
+                # mou el PID al subcgroup
+                f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
+            ]
+
+            full_cmd = f"sudo bash -c \"{' && '.join(cmds)}\""
+            print(f"Assignant PID {pid} al subcgroup {target_sub_cgroup} amb comanda:\n{full_cmd}")
+            self.master_node.send_command(full_cmd)
