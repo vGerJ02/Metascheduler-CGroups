@@ -70,7 +70,7 @@ class CgroupsScheduler(Scheduler):
 
     def queue_job(self, job: Job):
         if hasattr(job, 'scheduler_type'):
-            if job.scheduler_type== "S":
+            if job.scheduler_type == "S":
                 self.sge.queue_job(job)
                 pass
             elif job.scheduler_type == "H":
@@ -108,7 +108,7 @@ class CgroupsScheduler(Scheduler):
     def assign_hadoop_to_cgroup(self, pids: list[str], sub_cgroup_name: str = "hadoop"):
         """
         Per cada PID de Hadoop, troba el seu cgroup path, crea un subcgroup dins d'aquest
-        i mou el PID a aquest subcgroup per gestionar-lo.
+        i mou el PID a aquest subcgroup per gestionar-lo. Si el subcgroup ja existeix, no el torna a crear.
         """
         for pid in pids:
             # 1. Obtenim el path cgroup del PID (cgroup v2)
@@ -118,19 +118,33 @@ class CgroupsScheduler(Scheduler):
                 print(f"⚠️ No s'ha trobat cgroup per PID {pid}")
                 continue
 
+            # Evitar que ja estigui al subcgroup
+            if cgroup_rel_path.endswith(f"/{sub_cgroup_name}") or cgroup_rel_path == f"/{sub_cgroup_name}":
+                print(f"✅ PID {pid} ja està dins un cgroup amb nom '{sub_cgroup_name}', no es fa res.")
+                continue
+
             base_cgroup_path = f"/sys/fs/cgroup{cgroup_rel_path}"
-            print("PAthh" + base_cgroup_path)
             target_sub_cgroup = f"{base_cgroup_path}/{sub_cgroup_name}"
 
-            # 2. Comandes a executar:
-            cmds = [
-                f"mkdir -p '{target_sub_cgroup}'",
-                # activar controllers al cgroup pare per permetre subcgroups
-                f"echo '+cpu +memory +io' | sudo tee '{base_cgroup_path}/cgroup.subtree_control' || true",
-                # mou el PID al subcgroup
-                f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
-            ]
+            # 2. Comprova si el subcgroup ja existeix
+            check_cmd = f"test -d '{target_sub_cgroup}' && echo 'EXISTS' || echo 'MISSING'"
+            exists = self.master_node.send_command(check_cmd).strip()
 
-            full_cmd = f"sudo bash -c \"{' && '.join(cmds)}\""
-            print(f"Assignant PID {pid} al subcgroup {target_sub_cgroup} amb comanda:\n{full_cmd}")
-            self.master_node.send_command(full_cmd)
+            print(exists)
+            if exists == "MISSING":
+                # només si no existeix, el creem i activem controllers
+                print("Creant Grup :)")
+                cmds = [
+                    f"mkdir -p '{target_sub_cgroup}'",
+                    f"echo '+cpu +memory +io' | sudo tee '{base_cgroup_path}/cgroup.subtree_control' || true"
+                ]
+                print(f"🆕 Creant subcgroup {target_sub_cgroup}")
+                self.master_node.send_command(f"sudo bash -c \"{' && '.join(cmds)}\"")
+            else:
+                print(f"✅ Subcgroup {target_sub_cgroup} ja existeix")
+
+            # 3. Mou el PID al subcgroup (sigui nou o ja existent)
+            move_cmd = f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
+            self.master_node.send_command(move_cmd)
+            print(f"🔄 PID {pid} assignat a {target_sub_cgroup}")
+

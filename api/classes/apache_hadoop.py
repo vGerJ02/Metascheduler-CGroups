@@ -205,17 +205,23 @@ class ApacheHadoop(Scheduler):
                 node.send_command(f'renice 0 {pid}')
 
     def get_hadoop_process_tree(self) -> list[str]:
+        sleep(4)
         cmd = (
             "bash -c '"
-            "PIDS=$(jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell\" | awk \"{print \\$1}\") && "
+            "jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell|RunJar|MRAppMaster|ApplicationCLI|YarnChild|SecondaryNameNode\" | awk \"{print \\$1}\" > /tmp/hadoop_roots.txt && "
             "ps -eo pid,ppid > /tmp/all_procs.txt && "
-            "ALL_PIDS=\"\" && "
-            "for PID in $PIDS; do "
-            "  CHILDREN=$(awk -v p=$PID \"$2==p {print \\$1}\" /tmp/all_procs.txt); "
-            "  ALL_PIDS=\"$ALL_PIDS $CHILDREN $PID\"; "
-            "done && "
-            "echo $ALL_PIDS | tr \" \" \"\\n\" | sort -n | uniq | tac"
-            "'"
+            "function get_children() { "
+            "  local pid=$1; "
+            "  echo $pid; "
+            "  for child in $(awk -v p=$pid \"$2==p {print \\$1}\" /tmp/all_procs.txt); do "
+            "    get_children $child; "
+            "  done; "
+            "} ; "
+            "ALL=\"\"; "
+            "for pid in $(cat /tmp/hadoop_roots.txt); do "
+            "  ALL=\"$ALL $(get_children $pid)\"; "
+            "done; "
+            "echo $ALL | tr \" \" \"\\n\" | sort -n | uniq'"
         )
         output = self.master_node.send_command(cmd)
         return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
