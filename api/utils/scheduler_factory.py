@@ -1,4 +1,4 @@
-from ..classes.CgroupsScheduler import CgroupsScheduler
+from ..classes.cgroups_scheduler import CgroupsScheduler
 from ..classes.apache_hadoop import ApacheHadoop
 from ..classes.sge import SGE
 

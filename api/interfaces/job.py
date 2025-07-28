@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from api.constants.SchedulerType import SchedulerType
+from api.constants.scheduler_type import SchedulerType
 from api.constants.job_status import JobStatus
 
 

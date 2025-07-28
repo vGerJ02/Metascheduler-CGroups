@@ -9,7 +9,7 @@ from rich import print, print_json
 from rich.panel import Panel
 from rich.table import Table
 
-from api.constants.SchedulerType import SchedulerType
+from api.constants.scheduler_type import SchedulerType
 from client.helpers.http_client import HTTP_Client
 
 app = typer.Typer(no_args_is_help=True)
