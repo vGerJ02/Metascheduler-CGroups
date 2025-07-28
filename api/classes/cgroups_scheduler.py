@@ -30,7 +30,6 @@ class CgroupsScheduler(Scheduler):
 
         self.sge.set_master_node(sge_node)
         self.hadoop.set_master_node(hadoop_node)
-        self._create_cgroups()
         time.sleep(0.5)
 
         # Assignar processos Hadoop i SGE persistents al grup
@@ -47,26 +46,6 @@ class CgroupsScheduler(Scheduler):
         self.sge.set_weight(weight)
         self.hadoop.set_weight(weight)
 
-    def _create_cgroups(self):
-        '''
-        Inicialitza els cgroups SGE i Hadoop dins de la jerarquia cgroups v2,
-        sense configurar els recursos.
-        '''
-        cmds = [
-            # Activar controladors per la jerarquia
-            "echo '+cpu +memory' | sudo tee /sys/fs/cgroup/cgroup.subtree_control",
-
-            # Crear els cgroups sge i hadoop
-            "sudo mkdir -p /sys/fs/cgroup/sge",
-            "#sudo mkdir -p /sys/fs/cgroup/hadoop",
-
-            # 3. Activar controladors també dins els subgrups (opcional)
-            "sudo sh -c \"echo '+cpu +memory' > /sys/fs/cgroup/sge/cgroup.subtree_control\"",
-            "#sudo sh -c \"echo '+cpu +memory' > /sys/fs/cgroup/hadoop/cgroup.subtree_control\"",
-        ]
-
-        for cmd in cmds:
-            self.master_node.send_command(cmd)
 
     def queue_job(self, job: Job):
         if hasattr(job, 'scheduler_type'):

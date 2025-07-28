@@ -174,7 +174,7 @@ class ApacheHadoop(Scheduler):
         '''
         Get the list of processes of the running jobs.
 
-        Search for the sge_shepherd process and get the PID of the process and the nice value.
+        Search for the hadoop processes and get the PID of the process and the nice value.
 
         '''
         job_processes_pid_nice_cpu_mem = []
