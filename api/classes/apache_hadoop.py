@@ -205,7 +205,6 @@ class ApacheHadoop(Scheduler):
                 node.send_command(f'renice 0 {pid}')
 
     def get_hadoop_process_tree(self) -> list[str]:
-        sleep(4)
         cmd = (
             "bash -c '"
             "jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell|RunJar|MRAppMaster|ApplicationCLI|YarnChild|SecondaryNameNode\" | awk \"{print \\$1}\" > /tmp/hadoop_roots.txt && "

@@ -33,14 +33,14 @@ class CgroupsScheduler(Scheduler):
         self._create_cgroups()
         time.sleep(0.5)
 
-        # Assignar processos Hadoop persistents al grup
-        self.assign_hadoop_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop", )
+        # Assignar processos Hadoop i SGE persistents al grup
+        self.assign_pids_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop")
+        self.assign_pids_to_cgroup(self.sge.get_sge_process_tree(), "sge")
 
     def set_nodes(self, nodes: List[Node]):
         self.nodes = nodes
         self.hadoop.set_nodes(nodes)
         self.sge.set_nodes(nodes)
-        self.hadoop.set_nodes(nodes)
 
     def set_weight(self, weight: int):
         self.weight = weight
@@ -72,14 +72,17 @@ class CgroupsScheduler(Scheduler):
         if hasattr(job, 'scheduler_type'):
             if job.scheduler_type == "S":
                 self.sge.queue_job(job)
-                pass
+                time.sleep(0.5)
+                sge_job_pids = self.sge.get_sge_process_tree()
+                self.assign_pids_to_cgroup(sge_job_pids, "sge", )
+
             elif job.scheduler_type == "H":
                 self.hadoop.queue_job(job)
 
                 # Assignar els nous processos Hadoop al cgroup
                 time.sleep(0.5)
                 hadoop_job_pids = self.hadoop.get_hadoop_process_tree()
-                self.assign_hadoop_to_cgroup(hadoop_job_pids, "hadoop", )
+                self.assign_pids_to_cgroup(hadoop_job_pids, "hadoop", )
             else:
                 raise ValueError("Unknown scheduler type")
         else:
@@ -105,10 +108,11 @@ class CgroupsScheduler(Scheduler):
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
 
-    def assign_hadoop_to_cgroup(self, pids: list[str], sub_cgroup_name: str = "hadoop"):
+    def assign_pids_to_cgroup(self, pids: list[str], sub_cgroup_name: str):
         """
-        Per cada PID de Hadoop, troba el seu cgroup path, crea un subcgroup dins d'aquest
-        i mou el PID a aquest subcgroup per gestionar-lo. Si el subcgroup ja existeix, no el torna a crear.
+        Assigna una llista de PIDs a un subcgroup específic (p.ex. "sge" o "hadoop").
+        Crea el subcgroup si no existeix, activant els controllers necessaris.
+        Mostra missatges de debug per a cada pas.
         """
         for pid in pids:
             # 1. Obtenim el path cgroup del PID (cgroup v2)
@@ -118,7 +122,7 @@ class CgroupsScheduler(Scheduler):
                 print(f"⚠️ No s'ha trobat cgroup per PID {pid}")
                 continue
 
-            # Evitar que ja estigui al subcgroup
+            # Evitar repetir si ja hi és
             if cgroup_rel_path.endswith(f"/{sub_cgroup_name}") or cgroup_rel_path == f"/{sub_cgroup_name}":
                 print(f"✅ PID {pid} ja està dins un cgroup amb nom '{sub_cgroup_name}', no es fa res.")
                 continue
@@ -126,14 +130,11 @@ class CgroupsScheduler(Scheduler):
             base_cgroup_path = f"/sys/fs/cgroup{cgroup_rel_path}"
             target_sub_cgroup = f"{base_cgroup_path}/{sub_cgroup_name}"
 
-            # 2. Comprova si el subcgroup ja existeix
+            # 2. Crear subcgroup si cal
             check_cmd = f"test -d '{target_sub_cgroup}' && echo 'EXISTS' || echo 'MISSING'"
             exists = self.master_node.send_command(check_cmd).strip()
 
-            print(exists)
             if exists == "MISSING":
-                # només si no existeix, el creem i activem controllers
-                print("Creant Grup :)")
                 cmds = [
                     f"mkdir -p '{target_sub_cgroup}'",
                     f"echo '+cpu +memory +io' | sudo tee '{base_cgroup_path}/cgroup.subtree_control' || true"
@@ -143,7 +144,7 @@ class CgroupsScheduler(Scheduler):
             else:
                 print(f"✅ Subcgroup {target_sub_cgroup} ja existeix")
 
-            # 3. Mou el PID al subcgroup (sigui nou o ja existent)
+            # 3. Assignar el PID
             move_cmd = f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
             self.master_node.send_command(move_cmd)
             print(f"🔄 PID {pid} assignat a {target_sub_cgroup}")

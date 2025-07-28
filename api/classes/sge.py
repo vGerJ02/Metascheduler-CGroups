@@ -1,4 +1,4 @@
-import os
+import time
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
@@ -196,3 +196,35 @@ class SGE(Scheduler):
                 job_processes_pid_nice.append(
                     (int(line.split()[0]), int(line.split()[2]), line.split()[4]))
         return job_processes_pid_nice
+
+    def get_sge_process_tree(self) -> list[str]:
+        cmd = (
+            "bash -c '"
+            # Obtenim els PIDs inicials de processos SGE
+            "ps -eo pid,cmd | grep -E \"sge_qmaster|sge_execd|sge_shadowd|sge_shepherd\" "
+            "| grep -v grep | awk \"{print \\$1}\" > /tmp/sge_roots.txt && "
+
+            # Guardem tots els pids i ppids
+            "ps -eo pid,ppid > /tmp/all_procs.txt && "
+
+            # Funció recursiva per trobar fills
+            "function get_children() { "
+            "  local pid=$1; "
+            "  echo $pid; "
+            "  for child in $(awk -v p=$pid \"$2==p {print \\$1}\" /tmp/all_procs.txt); do "
+            "    get_children $child; "
+            "  done; "
+            "} ; "
+
+            # Recorrer tots els processos arrel
+            "ALL=\"\"; "
+            "for pid in $(cat /tmp/sge_roots.txt); do "
+            "  ALL=\"$ALL $(get_children $pid)\"; "
+            "done; "
+
+            # Sortida neta
+            "echo $ALL | tr \" \" \"\\n\" | sort -n | uniq'"
+        )
+        output = self.master_node.send_command(cmd)
+        return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
+
