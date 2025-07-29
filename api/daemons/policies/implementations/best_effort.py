@@ -1,4 +1,3 @@
-from time import sleep
 from typing import List
 
 from api.classes.cgroups_scheduler import CgroupsScheduler
@@ -52,8 +51,6 @@ class BestEffortPolicy(PlanificationPolicy):
     def _adjust_priorities(self):
         """Adjusts CPU weights (cgroups) or nice values based on priority and job presence."""
         for scheduler in self.schedulers:
-            print("Name " + scheduler.name)
-
             if isinstance(scheduler, CgroupsScheduler):
                 # 👉 We only adjust the container (parent) cgroup
                 cgroup_path = scheduler.parent_cgroup_path
@@ -69,7 +66,6 @@ class BestEffortPolicy(PlanificationPolicy):
                 if scheduler == self.highest_priority:
                     print(scheduler.name + str(self.highest_priority))
                     continue
-                print("Si? 2")
                 # 🎚️ Adjust nice value as usual
                 if len(scheduler.get_job_list()) > 0:
                     scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
