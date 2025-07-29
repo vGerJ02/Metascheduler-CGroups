@@ -1,10 +1,15 @@
 from typing import List
+
+from api.classes.cgroups_scheduler import CgroupsScheduler
 from api.config.config import AppConfig
 from api.daemons.policies.planification_policy import PlanificationPolicy
 from api.interfaces.job import Job
 from api.interfaces.node import Node
 
 MINIMUM_NICE_VALUE = 19
+DEFAULT_CPU_WEIGHT = 100
+LOW_CPU_WEIGHT = 50
+HIGH_CPU_WEIGHT = 200
 
 
 class BestEffortPolicy(PlanificationPolicy):
@@ -47,13 +52,33 @@ class BestEffortPolicy(PlanificationPolicy):
         self._adjust_priorities()
 
     def _adjust_priorities(self):
-        '''
-        Adjust the priorities of the jobs in the schedulers that are not the
-        highest priority scheduler.
-
-        '''
         for scheduler in self.schedulers:
-            if scheduler == self.highest_priority:
-                continue
-            if len(scheduler.get_job_list()) > 0:
-                scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
+            print("Name " + scheduler.name)
+
+            if isinstance(scheduler, CgroupsScheduler):
+                if scheduler == self.highest_priority:
+                    self._set_cpu_weight(scheduler.sge.cgroup_path, HIGH_CPU_WEIGHT)
+                    self._set_cpu_weight(scheduler.hadoop.cgroup_path, HIGH_CPU_WEIGHT)
+                elif len(scheduler.get_job_list()) > 0:
+                    self._set_cpu_weight(scheduler.sge.cgroup_path, LOW_CPU_WEIGHT)
+                    self._set_cpu_weight(scheduler.hadoop.cgroup_path, LOW_CPU_WEIGHT)
+                else:
+                    self._set_cpu_weight(scheduler.sge.cgroup_path, DEFAULT_CPU_WEIGHT)
+                    self._set_cpu_weight(scheduler.hadoop.cgroup_path, DEFAULT_CPU_WEIGHT)
+            else:
+                if scheduler == self.highest_priority:
+                    print(scheduler.name + str(self.highest_priority))
+                    continue
+                print("Si? 2")
+                # 🎚️ Ajustem nice com fins ara
+                if len(scheduler.get_job_list()) > 0:
+                    scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
+
+    def _set_cpu_weight(self, cgroup_path: str, weight: int):
+        """
+        Assigna el pes de CPU a un cgroup concret.
+        """
+        command = f"echo {weight} | sudo tee {cgroup_path}/cpu.weight"
+        print(f"[INFO] Ajustant {cgroup_path}/cpu.weight a {weight}")
+        self.nodes[0].send_command(command)
+

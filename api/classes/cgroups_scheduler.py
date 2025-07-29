@@ -1,6 +1,5 @@
 import time
 from copy import deepcopy
-from time import sleep
 
 from api.classes.apache_hadoop import ApacheHadoop
 from api.classes.sge import SGE
@@ -73,7 +72,6 @@ class CgroupsScheduler(Scheduler):
         self.running_jobs = self.sge.get_job_list() + self.hadoop.get_job_list()
 
     def get_job_list(self) -> List[Job]:
-
         return self.sge.get_job_list() + self.hadoop.get_job_list()
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
@@ -83,6 +81,40 @@ class CgroupsScheduler(Scheduler):
     def adjust_nice_of_job(self, job_pid: int, new_nice: int, user: str):
         self.sge.adjust_nice_of_job(job_pid, new_nice, user)
         self.hadoop.adjust_nice_of_job(job_pid, new_nice)
+
+    def adjust_cpu_weight(self, scheduler_type: str, weight: int):
+        """
+        Ajusta el pes (prioritat) de CPU per al cgroup del scheduler especificat.
+        :param scheduler_type: 'sge' o 'hadoop'
+        :param weight: valor de 1 a 10000 (per cgroups v2, valor per defecte = 100)
+        """
+        # Troba el primer PID actiu del grup per obtenir el cgroup base
+        pids = []
+        if scheduler_type == "sge":
+            pids = self.sge.get_sge_process_tree()
+        elif scheduler_type == "hadoop":
+            pids = self.hadoop.get_hadoop_process_tree()
+        else:
+            raise ValueError("Scheduler type ha de ser 'sge' o 'hadoop'")
+
+        if not pids:
+            print(f"⚠️ No s'ha trobat cap procés actiu per '{scheduler_type}'")
+            return
+
+        # Troba el path del cgroup del primer PID i construeix el subpath
+        get_cgroup_path_cmd = f"cat /proc/{pids[0]}/cgroup | grep '^0::' | cut -d: -f3"
+        cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
+        if not cgroup_rel_path:
+            print(f"⚠️ No s'ha pogut obtenir el cgroup path per PID {pids[0]}")
+            return
+
+        full_path = f"/sys/fs/cgroup{cgroup_rel_path}/{scheduler_type}"
+
+        # Assignar el nou pes de CPU
+        cmd = f"echo {weight} | sudo tee {full_path}/cpu.weight"
+        result = self.master_node.send_command(cmd)
+        print(f"✅ Assignat cpu.weight={weight} al cgroup '{full_path}'")
+
 
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
@@ -128,3 +160,8 @@ class CgroupsScheduler(Scheduler):
             self.master_node.send_command(move_cmd)
             print(f"🔄 PID {pid} assignat a {target_sub_cgroup}")
 
+            # Guardar path al scheduler corresponent
+            if sub_cgroup_name == "sge":
+                self.sge.cgroup_path = target_sub_cgroup
+            elif sub_cgroup_name == "hadoop":
+                self.hadoop.cgroup_path = target_sub_cgroup

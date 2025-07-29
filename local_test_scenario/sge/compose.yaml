@@ -4,4 +4,4 @@ services:
       context: .
       dockerfile: Dockerfile.sge
     ports:
-      - "3000:22"
+      - "3001:22"

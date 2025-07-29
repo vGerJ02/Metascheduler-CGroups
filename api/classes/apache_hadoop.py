@@ -23,6 +23,7 @@ class ApacheHadoop(Scheduler):
     def __init__(self) -> None:
         super().__init__()
         self.name = 'Apache Hadoop'
+        self.cgroup_path = ""
 
     def __str__(self) -> str:
         return f'Apache Hadoop Scheduler: {self.master_node.ip}:{self.master_node.port}'
@@ -79,15 +80,6 @@ class ApacheHadoop(Scheduler):
         except Exception as e:
             print(f'Error: {e}')
             update_job_status(job.id_, job.owner, JobStatus.ERROR)
-
-    """def _call_yarn_jar(self, job: Job):
-        '''
-        Call the yarn jar command to run the job.
-
-        '''
-        self.master_node.send_command_async(
-            f'sudo -u {job.owner} sh -c \'export JAVA_HOME={JAVA_HOME} && cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {job.options}\''
-        )"""
 
     def _call_yarn_jar(self, job: Job):
         '''
