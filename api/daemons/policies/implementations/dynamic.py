@@ -7,6 +7,7 @@ import time
 
 MAX_NICE = 19
 MIN_NICE_NO_ROOT = 0
+DEFAULT_SAFE_MEMORY_LIMIT = 50 * 10 ** 6  # 50MB
 
 
 class DynamicPolicy(PlanificationPolicy):
@@ -61,9 +62,8 @@ class DynamicPolicy(PlanificationPolicy):
         - memory.high: for memory limit
         """
         avg_cpu = sum(job[2] for job in jobs_info) / len(jobs_info)
-        avg_mem = sum(job[3] for job in jobs_info) / len(jobs_info)
 
-        # 🔧 Adjust CPU weight
+        # Adjust CPU weight
         target_cpu_weight = scheduler.weight
         current_cpu_weight = scheduler.get_cpu_weight()
         new_cpu_weight = current_cpu_weight
@@ -75,19 +75,6 @@ class DynamicPolicy(PlanificationPolicy):
 
         print(f'[CgroupsScheduler] Adjusting CPU weight: {current_cpu_weight} → {new_cpu_weight}')
         scheduler.set_cpu_weight(new_cpu_weight)
-
-        # 🔧 Adjust memory limit
-        target_mem_limit = scheduler.weight * 10 ** 6  # e.g., weight = 30 ⇒ 30MB
-        current_mem_limit = scheduler.get_memory_limit()
-        new_mem_limit = current_mem_limit
-
-        if avg_mem > scheduler.weight:
-            new_mem_limit = max(10 ** 6, current_mem_limit - 10 * 10 ** 6)
-        elif avg_mem < scheduler.weight:
-            new_mem_limit = current_mem_limit + 10 * 10 ** 6
-
-        print(f'[CgroupsScheduler] Adjusting MEM limit: {current_mem_limit} → {new_mem_limit}')
-        scheduler.set_memory_limit(new_mem_limit)
 
     def _adjust_classic_scheduler(self, scheduler, jobs_info):
         """Adjusts nice values for classic schedulers based on job CPU/MEM usage and weight."""
