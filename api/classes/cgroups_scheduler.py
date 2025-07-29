@@ -21,6 +21,9 @@ class CgroupsScheduler(Scheduler):
         self.hadoop = ApacheHadoop()
         self.sge = SGE()
         self.parent_cgroup_path = ""
+        # Primeres lectures: suposem 0 microsec i ara
+        self._last_usage = 0
+        self._last_time = time.time()
 
     def set_master_node(self, node: Node):
         """Assign the master node and configure both SGE and Hadoop with it."""
@@ -201,6 +204,45 @@ class CgroupsScheduler(Scheduler):
             print(f"⚠️ Could not interpret cpu.weight: {result}")
             return 0
 
+    def get_cpu_usage(self) -> float:
+        """
+        Estimates CPU usage (%) from cgroup's cpu.stat via send_command().
+        """
+        try:
+            # Llegeix cpu.stat via SSH/exec remot
+            stat_file = f"{self.parent_cgroup_path}/cpu.stat"
+            cmd = f"cat '{stat_file}'"
+            raw = self.master_node.send_command(cmd)
+
+            # Busca la línia usage_usec
+            usage_line = next(
+                (l for l in raw.splitlines() if l.startswith("usage_usec")),
+                None
+            )
+            if not usage_line:
+                print("⚠️ cpu.stat no conté 'usage_usec'")
+                return 0.0
+
+            current_usage = int(usage_line.split()[1])
+            now = time.time()
+            elapsed = now - self._last_time
+
+            # Actualitza per la següent crida
+            delta_usage = current_usage - self._last_usage
+            self._last_usage = current_usage
+            self._last_time = now
+
+            if elapsed <= 0:
+                return 0.0
+
+            # 1 core = 1_000_000 usec per segon
+            cpu_percent = (delta_usage / (elapsed * 1_000_000)) * 100
+            return min(100.0, max(0.0, cpu_percent))
+
+        except Exception as e:
+            print(f"⚠️ Error llegint cpu.stat amb send_command(): {e}")
+            return 0.0
+
     def set_cpu_weight(self, weight: int):
         """Set the cpu.weight value in the parent cgroup."""
         if not self.parent_cgroup_path:
@@ -210,32 +252,3 @@ class CgroupsScheduler(Scheduler):
         cmd = f"sudo bash -c \"echo {weight} > '{self.parent_cgroup_path}/cpu.weight'\""
         self.master_node.send_command(cmd)
         print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
-
-    def get_memory_limit(self) -> int:
-        """Return the current memory.high limit (in bytes) from the parent cgroup."""
-        if not self.parent_cgroup_path:
-            print("⚠️ Parent cgroup path is not defined.")
-            return 0
-
-        cmd = f"cat '{self.parent_cgroup_path}/memory.high'"
-        result = self.master_node.send_command(cmd).strip()
-
-        if result == "max":
-            print("ℹ️ memory.high is currently unlimited (max)")
-            return -1
-
-        try:
-            return int(result)
-        except ValueError:
-            print(f"⚠️ Could not read memory.high: '{result}'")
-            return 0
-
-    def set_memory_limit(self, memory: int):
-        """Set a new memory.high limit (in bytes) for the parent cgroup."""
-        if not self.parent_cgroup_path:
-            print("⚠️ Parent cgroup path is not defined.")
-            return
-
-        cmd = f"sudo bash -c \"echo {memory} > '{self.parent_cgroup_path}/memory.high'\""
-        self.master_node.send_command(cmd)
-        print(f"✅ memory.high set to {memory} bytes in {self.parent_cgroup_path}")
