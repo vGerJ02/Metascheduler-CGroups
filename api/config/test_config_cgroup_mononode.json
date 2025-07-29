@@ -1,7 +1,7 @@
 {
     "cluster": {
         "policy": {
-            "name": "best_effort",
+            "name": "dynamic",
             "highest_priority": "0"
         },
         "nodes": [

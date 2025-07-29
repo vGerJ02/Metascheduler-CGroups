@@ -11,19 +11,22 @@ from api.interfaces.scheduler import Scheduler
 
 class CgroupsScheduler(Scheduler):
     '''
-    Scheduler que encapsula SGE i Hadoop, i gestiona cgroups per ambdós.
+    Scheduler that encapsulates SGE and Hadoop, and manages cgroups for both.
     '''
 
     def __init__(self):
+        """Initialize the CgroupsScheduler with SGE and Hadoop instances."""
         super().__init__()
         self.name = "Cgroups"
         self.hadoop = ApacheHadoop()
         self.sge = SGE()
+        self.parent_cgroup_path = ""
 
     def set_master_node(self, node: Node):
+        """Assign the master node and configure both SGE and Hadoop with it."""
         self.master_node = node
 
-        # Clonar el node per a cada scheduler (mateixa IP i port, objecte diferent)
+        # Clone the node for each scheduler (same IP and port, different object)
         sge_node = deepcopy(node)
         hadoop_node = deepcopy(node)
 
@@ -31,22 +34,24 @@ class CgroupsScheduler(Scheduler):
         self.hadoop.set_master_node(hadoop_node)
         time.sleep(0.5)
 
-        # Assignar processos Hadoop i SGE persistents al grup
+        # Assign persistent Hadoop and SGE processes to their cgroups
         self.assign_pids_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop")
         self.assign_pids_to_cgroup(self.sge.get_sge_process_tree(), "sge")
 
     def set_nodes(self, nodes: List[Node]):
+        """Assign the list of worker nodes to both SGE and Hadoop."""
         self.nodes = nodes
         self.hadoop.set_nodes(nodes)
         self.sge.set_nodes(nodes)
 
     def set_weight(self, weight: int):
+        """Set the weight for both schedulers."""
         self.weight = weight
         self.sge.set_weight(weight)
         self.hadoop.set_weight(weight)
 
-
     def queue_job(self, job: Job):
+        """Queue a job to the correct scheduler and assign it to a cgroup."""
         if hasattr(job, 'scheduler_type'):
             if job.scheduler_type == "S":
                 self.sge.queue_job(job)
@@ -56,8 +61,6 @@ class CgroupsScheduler(Scheduler):
 
             elif job.scheduler_type == "H":
                 self.hadoop.queue_job(job)
-
-                # Assignar els nous processos Hadoop al cgroup
                 time.sleep(0.5)
                 hadoop_job_pids = self.hadoop.get_hadoop_process_tree()
                 self.assign_pids_to_cgroup(hadoop_job_pids, "hadoop", )
@@ -67,101 +70,172 @@ class CgroupsScheduler(Scheduler):
             raise AttributeError("Job object must have a 'scheduler_type' attribute")
 
     def update_job_list(self, metascheduler_queue: List[Job]):
+        """Update the job list for both schedulers based on the metascheduler queue."""
         self.sge.update_job_list(metascheduler_queue)
         self.hadoop.update_job_list(metascheduler_queue)
         self.running_jobs = self.sge.get_job_list() + self.hadoop.get_job_list()
 
     def get_job_list(self) -> List[Job]:
+        """Return the combined list of running jobs from both schedulers."""
         return self.sge.get_job_list() + self.hadoop.get_job_list()
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
+        """Adjust the nice value for all jobs in both schedulers."""
         self.sge.adjust_nice_of_all_jobs(new_nice)
         self.hadoop.adjust_nice_of_all_jobs(new_nice)
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int, user: str):
+        """Adjust the nice value for a specific job in both schedulers."""
         self.sge.adjust_nice_of_job(job_pid, new_nice, user)
         self.hadoop.adjust_nice_of_job(job_pid, new_nice)
 
     def adjust_cpu_weight(self, scheduler_type: str, weight: int):
         """
-        Ajusta el pes (prioritat) de CPU per al cgroup del scheduler especificat.
-        :param scheduler_type: 'sge' o 'hadoop'
-        :param weight: valor de 1 a 10000 (per cgroups v2, valor per defecte = 100)
+        Adjust the CPU weight (priority) for the specified scheduler's cgroup.
+        :param scheduler_type: 'sge' or 'hadoop'
+        :param weight: value from 1 to 10000 (for cgroups v2, default = 100)
         """
-        # Troba el primer PID actiu del grup per obtenir el cgroup base
-        pids = []
+        # Find the first active PID to determine the base cgroup
         if scheduler_type == "sge":
             pids = self.sge.get_sge_process_tree()
         elif scheduler_type == "hadoop":
             pids = self.hadoop.get_hadoop_process_tree()
         else:
-            raise ValueError("Scheduler type ha de ser 'sge' o 'hadoop'")
+            raise ValueError("Scheduler type must be 'sge' or 'hadoop'")
 
         if not pids:
-            print(f"⚠️ No s'ha trobat cap procés actiu per '{scheduler_type}'")
+            print(f"⚠️ No active process found for '{scheduler_type}'")
             return
 
-        # Troba el path del cgroup del primer PID i construeix el subpath
+        # Get the cgroup path from the first PID and build the full subcgroup path
         get_cgroup_path_cmd = f"cat /proc/{pids[0]}/cgroup | grep '^0::' | cut -d: -f3"
         cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
         if not cgroup_rel_path:
-            print(f"⚠️ No s'ha pogut obtenir el cgroup path per PID {pids[0]}")
+            print(f"⚠️ Failed to get cgroup path for PID {pids[0]}")
             return
 
         full_path = f"/sys/fs/cgroup{cgroup_rel_path}/{scheduler_type}"
 
-        # Assignar el nou pes de CPU
+        # Set the new CPU weight
         cmd = f"echo {weight} | sudo tee {full_path}/cpu.weight"
         result = self.master_node.send_command(cmd)
-        print(f"✅ Assignat cpu.weight={weight} al cgroup '{full_path}'")
-
+        print(f"✅ Assigned cpu.weight={weight} to cgroup '{full_path}'")
 
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
 
     def assign_pids_to_cgroup(self, pids: list[str], sub_cgroup_name: str):
-        """
-        Assigna una llista de PIDs a un subcgroup específic (p.ex. "sge" o "hadoop").
-        Crea el subcgroup si no existeix, activant els controllers necessaris.
-        Mostra missatges de debug per a cada pas.
-        """
+        """Assign a list of PIDs to a specific sub-cgroup ('sge' or 'hadoop')."""
         for pid in pids:
-            # 1. Obtenim el path cgroup del PID (cgroup v2)
             get_cgroup_path_cmd = f"cat /proc/{pid}/cgroup | grep '^0::' | cut -d: -f3"
             cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
             if not cgroup_rel_path:
-                print(f"⚠️ No s'ha trobat cgroup per PID {pid}")
+                print(f"⚠️ No cgroup found for PID {pid}")
                 continue
 
-            # Evitar repetir si ja hi és
-            if cgroup_rel_path.endswith(f"/{sub_cgroup_name}") or cgroup_rel_path == f"/{sub_cgroup_name}":
-                print(f"✅ PID {pid} ja està dins un cgroup amb nom '{sub_cgroup_name}', no es fa res.")
-                continue
+            # Avoid duplicating subgroups: skip if sub_cgroup_name already exists in the path
+            if sub_cgroup_name in cgroup_rel_path.split('/'):
+                target_sub_cgroup = f"/sys/fs/cgroup{cgroup_rel_path}"
+            else:
+                target_sub_cgroup = f"/sys/fs/cgroup{cgroup_rel_path}/{sub_cgroup_name}"
 
             base_cgroup_path = f"/sys/fs/cgroup{cgroup_rel_path}"
-            target_sub_cgroup = f"{base_cgroup_path}/{sub_cgroup_name}"
 
-            # 2. Crear subcgroup si cal
+            if self.parent_cgroup_path == "":
+                path_parts = base_cgroup_path.split('/')
+                if path_parts[-1] in ["hadoop", "sge"]:
+                    self.parent_cgroup_path = '/'.join(path_parts[:-1])
+                else:
+                    self.parent_cgroup_path = base_cgroup_path
+                print(f"📦 Parent cgroup set to: {self.parent_cgroup_path}")
+
+            # 1. Enable controllers in the parent cgroup (to allow child cgroups with cpu.weight)
+            enable_ctrls_cmd = (
+                f"sudo bash -c \"echo '+cpu +memory +io' > '{base_cgroup_path}/cgroup.subtree_control'\" || true"
+            )
+            self.master_node.send_command(enable_ctrls_cmd)
+            print(f"⚙️ Controllers enabled for {base_cgroup_path}")
+
+            verify_ctrls_cmd = f"cat '{base_cgroup_path}/cgroup.subtree_control'"
+            ctrls_result = self.master_node.send_command(verify_ctrls_cmd).strip()
+            print(f"🔍 Controllers in parent: {ctrls_result}")
+
+            # 2. Create sub-cgroup if it doesn't exist
             check_cmd = f"test -d '{target_sub_cgroup}' && echo 'EXISTS' || echo 'MISSING'"
             exists = self.master_node.send_command(check_cmd).strip()
-
             if exists == "MISSING":
-                cmds = [
-                    f"mkdir -p '{target_sub_cgroup}'",
-                    f"echo '+cpu +memory +io' | sudo tee '{base_cgroup_path}/cgroup.subtree_control' || true"
-                ]
-                print(f"🆕 Creant subcgroup {target_sub_cgroup}")
-                self.master_node.send_command(f"sudo bash -c \"{' && '.join(cmds)}\"")
+                print(f"🆕 Creating subcgroup {target_sub_cgroup}")
+                self.master_node.send_command(f"sudo mkdir -p '{target_sub_cgroup}'")
             else:
-                print(f"✅ Subcgroup {target_sub_cgroup} ja existeix")
+                print(f"✅ Subcgroup {target_sub_cgroup} already exists")
 
-            # 3. Assignar el PID
+            # 3. Enable controllers inside the child subcgroup
+            enable_ctrls_child_cmd = (
+                f"sudo bash -c \"echo '+cpu +memory +io' > '{target_sub_cgroup}/cgroup.subtree_control'\" || true"
+            )
+            self.master_node.send_command(enable_ctrls_child_cmd)
+            print(f"⚙️ Controllers enabled inside {target_sub_cgroup}")
+
+            # 4. Move the PID to the subcgroup
             move_cmd = f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
             self.master_node.send_command(move_cmd)
-            print(f"🔄 PID {pid} assignat a {target_sub_cgroup}")
+            print(f"🔄 PID {pid} assigned to {target_sub_cgroup}")
 
-            # Guardar path al scheduler corresponent
-            if sub_cgroup_name == "sge":
+            # 5. Save cgroup path if it's the first time
+            if sub_cgroup_name == "sge" and self.sge.cgroup_path == "":
                 self.sge.cgroup_path = target_sub_cgroup
-            elif sub_cgroup_name == "hadoop":
+            elif sub_cgroup_name == "hadoop" and self.hadoop.cgroup_path == "":
                 self.hadoop.cgroup_path = target_sub_cgroup
+
+    def get_cpu_weight(self) -> int:
+        """Return the current cpu.weight value from the parent cgroup."""
+        if not self.parent_cgroup_path:
+            print("⚠️ Parent cgroup path is not defined.")
+            return 0
+
+        cmd = f"cat '{self.parent_cgroup_path}/cpu.weight'"
+        result = self.master_node.send_command(cmd).strip()
+        try:
+            return int(result)
+        except ValueError:
+            print(f"⚠️ Could not interpret cpu.weight: {result}")
+            return 0
+
+    def set_cpu_weight(self, weight: int):
+        """Set the cpu.weight value in the parent cgroup."""
+        if not self.parent_cgroup_path:
+            print("⚠️ Parent cgroup path is not defined.")
+            return
+
+        cmd = f"sudo bash -c \"echo {weight} > '{self.parent_cgroup_path}/cpu.weight'\""
+        self.master_node.send_command(cmd)
+        print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
+
+    def get_memory_limit(self) -> int:
+        """Return the current memory.high limit (in bytes) from the parent cgroup."""
+        if not self.parent_cgroup_path:
+            print("⚠️ Parent cgroup path is not defined.")
+            return 0
+
+        cmd = f"cat '{self.parent_cgroup_path}/memory.high'"
+        result = self.master_node.send_command(cmd).strip()
+
+        if result == "max":
+            print("ℹ️ memory.high is currently unlimited (max)")
+            return -1
+
+        try:
+            return int(result)
+        except ValueError:
+            print(f"⚠️ Could not read memory.high: '{result}'")
+            return 0
+
+    def set_memory_limit(self, memory: int):
+        """Set a new memory.high limit (in bytes) for the parent cgroup."""
+        if not self.parent_cgroup_path:
+            print("⚠️ Parent cgroup path is not defined.")
+            return
+
+        cmd = f"sudo bash -c \"echo {memory} > '{self.parent_cgroup_path}/memory.high'\""
+        self.master_node.send_command(cmd)
+        print(f"✅ memory.high set to {memory} bytes in {self.parent_cgroup_path}")
