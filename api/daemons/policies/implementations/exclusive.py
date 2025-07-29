@@ -1,7 +1,13 @@
 from typing import List
+
+from api.classes.cgroups_scheduler import CgroupsScheduler
 from api.daemons.policies.planification_policy import PlanificationPolicy
 from api.interfaces.job import Job
 
+HIGH_CPU_WEIGHT = 100
+LOW_CPU_WEIGHT = 1
+DEFAULT_NICE = 10
+MINIMUM_NICE_VALUE = 0
 
 class ExclusivePolicy(PlanificationPolicy):
     ''' The Exclusive Policy is a planification policy that allows only one scheduler
@@ -29,9 +35,22 @@ class ExclusivePolicy(PlanificationPolicy):
 
         for i, scheduler in enumerate(self.schedulers):
             if i != next_job_scheduler_index and len(scheduler.get_job_list()) > 0:
-                print(
-                    f'Scheduler {i} has running jobs. Cannot run job from scheduler {next_job_scheduler_index}.')
+                print(f"Scheduler {i} has running jobs. Cannot run job from scheduler {next_job_scheduler_index}.")
                 return
-        print(
-            f'Queuing job {next_job.id_} from scheduler {next_job_scheduler_index}...')
+
+        # Apply exclusive priority
+        for i, scheduler in enumerate(self.schedulers):
+            if isinstance(scheduler, CgroupsScheduler):
+                weight = HIGH_CPU_WEIGHT if i == next_job_scheduler_index else LOW_CPU_WEIGHT
+                scheduler.set_cpu_weight(weight)
+                print(f"Set cpu.weight={weight} for scheduler {i}")
+            else:
+                if i == next_job_scheduler_index:
+                    scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
+                    print(f"Set nice={MINIMUM_NICE_VALUE} for scheduler {i}")
+                else:
+                    scheduler.adjust_nice_of_all_jobs(DEFAULT_NICE)
+                    print(f"Set nice={DEFAULT_NICE} for scheduler {i}")
+
+        print(f"Queuing job {next_job.id_} from scheduler {next_job_scheduler_index}")
         self.schedulers[next_job_scheduler_index].queue_job(next_job)
