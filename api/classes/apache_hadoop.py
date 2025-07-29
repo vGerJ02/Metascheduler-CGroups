@@ -110,8 +110,6 @@ class ApacheHadoop(Scheduler):
         ]
 
         full_command = f"sudo -u {job.owner} sh -c '{' && '.join(cmds)}'"
-        print("Executant comanda Hadoop:\n", full_command)
-
         self.master_node.send_command_async(full_command)
 
     def _call_yarn_application(self) -> str:
@@ -122,7 +120,6 @@ class ApacheHadoop(Scheduler):
         response = self.master_node.send_command(
             f'export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list'
         )
-        print("Response function:" + str(response))
         return response
 
     def _is_any_job_running(self, response: str) -> bool:
@@ -143,7 +140,7 @@ class ApacheHadoop(Scheduler):
             for pid, actual_nice in job_processes_pid_nice:
                 if actual_nice == new_nice:
                     continue
-                node.send_command(f'renice {new_nice} {pid}')
+                node.send_command(f'sudo renice {new_nice} {pid}')
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int):
         '''
