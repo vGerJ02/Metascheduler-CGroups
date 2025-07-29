@@ -1,4 +1,6 @@
 from typing import List
+
+from api.classes.cgroups_scheduler import CgroupsScheduler
 from api.daemons.policies.planification_policy import PlanificationPolicy
 from api.interfaces.job import Job
 
@@ -42,10 +44,22 @@ class SharedPolicy(PlanificationPolicy):
 
     def _adjust_priorities(self):
         '''
-
+        Adjust job priorities based on either:
+        - CPU usage from cgroups (if scheduler is CgroupsScheduler)
+        - Static weight (otherwise)
         '''
         for scheduler in self.schedulers:
-            nice_value = self._calculate_nice_from_weight(scheduler.weight)
+            if isinstance(scheduler, CgroupsScheduler):
+                cpu_usage = scheduler.get_cpu_usage()  # percent 0–100
+                dynamic_weight = self._calculate_weight_from_cpu_usage(cpu_usage)
+                nice_value = self._calculate_nice_from_weight(dynamic_weight)
+                print(
+                    f'[SharedPolicy] (CGroups) Scheduler {scheduler.name} CPU usage: {cpu_usage:.2f}% → nice: {nice_value}')
+            else:
+                nice_value = self._calculate_nice_from_weight(scheduler.weight)
+                print(
+                    f'[SharedPolicy] Scheduler {scheduler.name} static weight: {scheduler.weight} → nice: {nice_value}')
+
             scheduler.adjust_nice_of_all_jobs(nice_value)
 
     def _calculate_nice_from_weight(self, weight: int) -> int:
@@ -62,3 +76,10 @@ class SharedPolicy(PlanificationPolicy):
         nice_range = MAX_NICE - MIN_NICE_NO_ROOT
         nice = MIN_NICE_NO_ROOT + (1 - proportional_cpu_usage) * nice_range
         return round(nice)
+
+    def _calculate_weight_from_cpu_usage(self, cpu_usage: float) -> int:
+        '''
+        Converts CPU usage % into a dynamic weight (1–100).
+        '''
+        usage = max(0.0, min(cpu_usage, 100.0))
+        return max(1, round(usage))
