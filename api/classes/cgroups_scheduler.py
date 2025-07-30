@@ -180,7 +180,11 @@ class CgroupsScheduler(Scheduler):
             print(f"⚙️ Controllers enabled inside {target_sub_cgroup}")
 
             # 4. Move the PID to the subcgroup
-            move_cmd = f"echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'"
+            move_cmd = (
+                f"bash -c \"if kill -0 {pid} 2>/dev/null; "
+                f"then echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'; "
+                f"fi\""
+            )
             self.master_node.send_command(move_cmd)
             print(f"🔄 PID {pid} assigned to {target_sub_cgroup}")
 

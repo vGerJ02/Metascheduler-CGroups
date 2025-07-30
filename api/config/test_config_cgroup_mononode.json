@@ -1,7 +1,7 @@
 {
     "cluster": {
         "policy": {
-            "name": "dynamic",
+            "name": "shared",
             "highest_priority": "0"
         },
         "nodes": [
