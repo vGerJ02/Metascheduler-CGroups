@@ -1,4 +1,3 @@
-from time import sleep
 from typing import List
 
 from api.classes.cgroups_scheduler import CgroupsScheduler
@@ -77,5 +76,21 @@ class BestEffortPolicy(PlanificationPolicy):
     def _set_cpu_weight(self, cgroup_path: str, weight: int):
         """Sends a remote command to set the CPU weight for a given cgroup path."""
         print(f"[INFO] Adjusting {cgroup_path}/cpu.weight to {weight}")
-        cmd = f"sudo bash -c \"echo {weight} > '{cgroup_path}/cpu.weight'\""
-        self.nodes[0].send_command(cmd)
+        cmd_check = f"test -d '{cgroup_path}/'; echo $?"
+        cmd_set = f"echo {weight} | sudo tee '{cgroup_path}/cpu.weight' > /dev/null"
+
+        for node in self.nodes:
+            try:
+                result = int(node.send_command(cmd_check))
+            except ValueError:
+                print(f"Node {node.id_}: Error llegint permisos del cgroup")
+                continue
+
+            if int(result) == 0:
+                try:
+                    node.send_command(cmd_set)
+                    print(f"Node {node.id_}: cpu.weight set correctament a {weight}")
+                except Exception as e:
+                    print(f"Node {node.id_}: Error establint cpu.weight: {e}")
+            else:
+                print(f"Node {node.id_}: no es pot escriure a cgroup, s'omet l'ajust")
