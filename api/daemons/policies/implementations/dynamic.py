@@ -63,18 +63,22 @@ class DynamicPolicy(PlanificationPolicy):
         """
         avg_cpu = sum(job[2] for job in jobs_info) / len(jobs_info)
 
+        def weight_to_cgroup(w):
+            return max(1, int(w / 100 * 10000))
+
         # Adjust CPU weight
-        target_cpu_weight = scheduler.weight
+        target_cpu_weight =  weight_to_cgroup(scheduler.weight)
         current_cpu_weight = scheduler.get_cpu_weight()
         new_cpu_weight = current_cpu_weight
 
         if avg_cpu > target_cpu_weight:
-            new_cpu_weight = max(1, current_cpu_weight - 10)
+            new_cpu_weight = max(1, current_cpu_weight - 500)
         elif avg_cpu < target_cpu_weight:
-            new_cpu_weight = min(100, current_cpu_weight + 10)
+            new_cpu_weight = min(100, current_cpu_weight + 500)
 
         print(f'[CgroupsScheduler] Adjusting CPU weight: {current_cpu_weight} → {new_cpu_weight}')
         scheduler.set_cpu_weight(new_cpu_weight)
+
 
     def _adjust_classic_scheduler(self, scheduler, jobs_info):
         """Adjusts nice values for classic schedulers based on job CPU/MEM usage and weight."""

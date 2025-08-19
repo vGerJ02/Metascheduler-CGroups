@@ -1,3 +1,4 @@
+from time import sleep
 from typing import List
 
 from api.classes.cgroups_scheduler import CgroupsScheduler
@@ -7,9 +8,10 @@ from api.interfaces.job import Job
 from api.interfaces.node import Node
 
 MINIMUM_NICE_VALUE = 19
-DEFAULT_CPU_WEIGHT = 100
-LOW_CPU_WEIGHT = 50
-HIGH_CPU_WEIGHT = 200
+DEFAULT_CPU_WEIGHT = 1000
+LOW_CPU_WEIGHT = 5000
+HIGH_CPU_WEIGHT = 10000
+
 
 
 class BestEffortPolicy(PlanificationPolicy):
@@ -52,29 +54,28 @@ class BestEffortPolicy(PlanificationPolicy):
         """Adjusts CPU weights (cgroups) or nice values based on priority and job presence."""
         for scheduler in self.schedulers:
             if isinstance(scheduler, CgroupsScheduler):
-                # 👉 We only adjust the container (parent) cgroup
                 cgroup_path = scheduler.parent_cgroup_path
 
                 if scheduler == self.highest_priority:
-                    self._set_cpu_weight(cgroup_path, HIGH_CPU_WEIGHT)
+                    weight = HIGH_CPU_WEIGHT
                 elif len(scheduler.get_job_list()) > 0:
-                    self._set_cpu_weight(cgroup_path, LOW_CPU_WEIGHT)
+                    weight = LOW_CPU_WEIGHT
                 else:
-                    self._set_cpu_weight(cgroup_path, DEFAULT_CPU_WEIGHT)
+                    weight = DEFAULT_CPU_WEIGHT
+
+                print(f"[BestEffortPolicy] (CGroups) Scheduler '{scheduler.name}' dynamic weight: {weight}")
+                self._set_cpu_weight(cgroup_path, weight)
 
             else:
                 if scheduler == self.highest_priority:
-                    print(scheduler.name + str(self.highest_priority))
+                    print(f"[BestEffortPolicy] Scheduler '{scheduler.name}' is highest priority (no cgroup)")
                     continue
-                # 🎚️ Adjust nice value as usual
                 if len(scheduler.get_job_list()) > 0:
                     scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
+                    print(f"[BestEffortPolicy] Scheduler '{scheduler.name}' nice set to {MINIMUM_NICE_VALUE}")
 
     def _set_cpu_weight(self, cgroup_path: str, weight: int):
         """Sends a remote command to set the CPU weight for a given cgroup path."""
         print(f"[INFO] Adjusting {cgroup_path}/cpu.weight to {weight}")
         cmd = f"sudo bash -c \"echo {weight} > '{cgroup_path}/cpu.weight'\""
-        #self.nodes[0].send_command(cmd)
-        for node in self.nodes:
-            print("Node ----> " + str(node.id_))
-            node.send_command(cmd)
+        self.nodes[0].send_command(cmd)

@@ -1,7 +1,7 @@
 {
     "cluster": {
         "policy": {
-            "name": "shared",
+            "name": "best_effort",
             "highest_priority": "0"
         },
         "nodes": [
