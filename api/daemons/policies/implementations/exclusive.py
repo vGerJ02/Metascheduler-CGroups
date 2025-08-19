@@ -4,8 +4,8 @@ from api.classes.cgroups_scheduler import CgroupsScheduler
 from api.daemons.policies.planification_policy import PlanificationPolicy
 from api.interfaces.job import Job
 
-HIGH_CPU_WEIGHT = 100
-LOW_CPU_WEIGHT = 1
+HIGH_CPU_WEIGHT = 10000
+LOW_CPU_WEIGHT = 100
 DEFAULT_NICE = 10
 MINIMUM_NICE_VALUE = 0
 
