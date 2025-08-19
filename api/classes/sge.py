@@ -22,6 +22,7 @@ class SGE(Scheduler):
     def __init__(self) -> None:
         super().__init__()
         self.name = 'SGE'
+
         self.cgroup_path = ""
 
     def __str__(self) -> str:

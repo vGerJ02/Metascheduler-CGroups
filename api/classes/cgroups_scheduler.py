@@ -37,6 +37,8 @@ class CgroupsScheduler(Scheduler):
         self.hadoop.set_master_node(hadoop_node)
         time.sleep(0.5)
 
+        print("NODES DE CGROUPS: " + str(self.nodes))
+
         # Assign persistent Hadoop and SGE processes to their cgroups
         self.assign_pids_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop")
         self.assign_pids_to_cgroup(self.sge.get_sge_process_tree(), "sge")
@@ -127,6 +129,7 @@ class CgroupsScheduler(Scheduler):
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
 
+    # Fer-ho per tots els nodes : TODO
     def assign_pids_to_cgroup(self, pids: list[str], sub_cgroup_name: str):
         """Assign a list of PIDs to a specific sub-cgroup ('sge' or 'hadoop')."""
         for pid in pids:

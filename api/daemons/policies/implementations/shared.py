@@ -6,6 +6,8 @@ from api.interfaces.job import Job
 
 MAX_NICE = 19
 MIN_NICE_NO_ROOT = 0
+CGROUPS_V2_MIN = 1
+CGROUPS_V2_MAX = 10000
 
 
 class SharedPolicy(PlanificationPolicy):
@@ -50,17 +52,18 @@ class SharedPolicy(PlanificationPolicy):
         '''
         for scheduler in self.schedulers:
             if isinstance(scheduler, CgroupsScheduler):
-                cpu_usage = scheduler.get_cpu_usage()  # percent 0–100
+                cpu_usage = scheduler.get_cpu_usage()
                 dynamic_weight = self._calculate_weight_from_cpu_usage(cpu_usage)
-                nice_value = self._calculate_nice_from_weight(dynamic_weight)
+
                 print(
-                    f'[SharedPolicy] (CGroups) Scheduler {scheduler.name} CPU usage: {cpu_usage:.2f}% → nice: {nice_value}')
+                    f'[SharedPolicy] (CGroups) Scheduler {scheduler.name} dynamic weight: {dynamic_weight}'
+                )
+                scheduler.set_cpu_weight(dynamic_weight)
             else:
                 nice_value = self._calculate_nice_from_weight(scheduler.weight)
                 print(
                     f'[SharedPolicy] Scheduler {scheduler.name} static weight: {scheduler.weight} → nice: {nice_value}')
-
-            scheduler.adjust_nice_of_all_jobs(nice_value)
+                scheduler.adjust_nice_of_all_jobs(nice_value)
 
     def _calculate_nice_from_weight(self, weight: int) -> int:
         '''
@@ -79,7 +82,22 @@ class SharedPolicy(PlanificationPolicy):
 
     def _calculate_weight_from_cpu_usage(self, cpu_usage: float) -> int:
         '''
-        Converts CPU usage % into a dynamic weight (1–100).
+        Converts CPU usage percentage into a cgroups v2 weight.
+
+        In cgroups v2, CPU weights range from 1 (minimum) to 10000 (maximum),
+        where higher weights give more CPU allocation relative to other groups.
+
+        Parameters:
+            cpu_usage (float): The CPU usage of the scheduler, in percentage (0–100).
+
+        Returns:
+            int: The corresponding cgroup weight, scaled to the 1–10000 range.
+
+        Steps:
+        1. Clamp the input CPU usage between 0 and 100 to avoid invalid values.
+        2. Scale the percentage into the cgroups weight range (CGROUPS_V2_MIN to CGROUPS_V2_MAX).
+        3. Round the result to the nearest integer to get a valid cgroup weight.
         '''
         usage = max(0.0, min(cpu_usage, 100.0))
-        return max(1, round(usage))
+        weight = CGROUPS_V2_MIN + (usage / 100) * (CGROUPS_V2_MAX - CGROUPS_V2_MIN)
+        return round(weight)

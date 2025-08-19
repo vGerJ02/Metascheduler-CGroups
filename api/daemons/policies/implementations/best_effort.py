@@ -74,7 +74,7 @@ class BestEffortPolicy(PlanificationPolicy):
         """Sends a remote command to set the CPU weight for a given cgroup path."""
         print(f"[INFO] Adjusting {cgroup_path}/cpu.weight to {weight}")
         cmd = f"sudo bash -c \"echo {weight} > '{cgroup_path}/cpu.weight'\""
-        self.nodes[0].send_command(cmd)
-
-
-
+        #self.nodes[0].send_command(cmd)
+        for node in self.nodes:
+            print("Node ----> " + str(node.id_))
+            node.send_command(cmd)
