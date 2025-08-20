@@ -1,5 +1,6 @@
 import time
 from copy import deepcopy
+from time import sleep
 
 from api.classes.apache_hadoop import ApacheHadoop
 from api.classes.sge import SGE
@@ -129,7 +130,7 @@ class CgroupsScheduler(Scheduler):
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
 
-    # Fer-ho per tots els nodes : TODO
+
     def assign_pids_to_cgroup(self, pids: list[str], sub_cgroup_name: str):
         """Assign a list of PIDs to a specific sub-cgroup ('sge' or 'hadoop')."""
         for pid in pids:
@@ -179,7 +180,12 @@ class CgroupsScheduler(Scheduler):
             enable_ctrls_child_cmd = (
                 f"sudo bash -c \"echo '+cpu +memory +io' > '{target_sub_cgroup}/cgroup.subtree_control'\" || true"
             )
-            self.master_node.send_command(enable_ctrls_child_cmd)
+
+            for node in self.nodes:
+                try:
+                    node.send_command(enable_ctrls_child_cmd)
+                except:
+                    continue
             print(f"⚙️ Controllers enabled inside {target_sub_cgroup}")
 
             # 4. Move the PID to the subcgroup
@@ -188,7 +194,12 @@ class CgroupsScheduler(Scheduler):
                 f"then echo {pid} | sudo tee '{target_sub_cgroup}/cgroup.procs'; "
                 f"fi\""
             )
-            self.master_node.send_command(move_cmd)
+
+            for node in self.nodes:
+                try:
+                    node.send_command(move_cmd)
+                except:
+                    continue
             print(f"🔄 PID {pid} assigned to {target_sub_cgroup}")
 
             # 5. Save cgroup path if it's the first time

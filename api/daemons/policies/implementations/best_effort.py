@@ -91,6 +91,6 @@ class BestEffortPolicy(PlanificationPolicy):
                     node.send_command(cmd_set)
                     print(f"Node {node.id_}: cpu.weight set correctament a {weight}")
                 except Exception as e:
-                    print(f"Node {node.id_}: Error establint cpu.weight: {e}")
+                    print(f"Node {node.id_}: Error establint cpu.weight ja que el node no te permissos suficients o cgroups incorrecte")
             else:
                 print(f"Node {node.id_}: no es pot escriure a cgroup, s'omet l'ajust")
