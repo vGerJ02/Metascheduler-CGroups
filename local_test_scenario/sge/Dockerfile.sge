@@ -26,6 +26,7 @@ COPY test_job100000000.sh /home/metascheduler/test_job100000000.sh
 COPY test_job1000000000.sh /home/metascheduler/test_job1000000000.sh
 COPY test_job10000000000.sh /home/metascheduler/test_job10000000000.sh
 COPY test_job100000000000.sh /home/metascheduler/test_job100000000000.sh
+COPY run_all_sge_jobs.sh /home/metascheduler/run_all_sge_jobs.sh
 
 RUN chown -R metascheduler:metascheduler /home/metascheduler \
     && chmod +x /home/metascheduler/*.sh

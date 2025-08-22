@@ -34,16 +34,18 @@ pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "n1000
 
 sleep 1
 
-pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "1" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.6.jar" --queue 1 --options "wordcount /1000000.txt /out1"'
+pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "1" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar" --queue 1 --options "wordcount 1000000.txt out1"'
 
 sleep 1
 
-pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "2" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.6.jar" --queue 1 --options "wordcount /5000000.txt /out2"'
+pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "2" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar" --queue 1 --options "wordcount 5000000.txt out2"'
 
 sleep 1
 
-pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "3" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.6.jar" --queue 1 --options "wordcount /10000000.txt /out3"'
+pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "3" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar" --queue 1 --options "wordcount 10000000.txt out3"'
 
 sleep 1
 
-pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "4" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.6.jar" --queue 1 --options "wordcount /15000000.txt /out4"'
+pipenv run sh -c 'export PYTHONPATH=.. && python3 main.py send job --name "4" --path "/opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar" --queue 1 --options "wordcount 15000000.txt out4"'
+
+

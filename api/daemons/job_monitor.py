@@ -57,6 +57,7 @@ class JobMonitorDaemon(metaclass=Singleton):
         self._update_jobs_queue()
         self._update_scheduler_queues()
         self._make_decisions()
+        self._make_decisions()
 
     def _update_policy_if_needed(self):
         ''' Update the policy if needed '''

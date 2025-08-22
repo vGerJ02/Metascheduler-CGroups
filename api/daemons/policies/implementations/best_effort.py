@@ -1,6 +1,7 @@
 from typing import List
 
 from api.classes.cgroups_scheduler import CgroupsScheduler
+from api.classes.sge import SGE
 from api.config.config import AppConfig
 from api.daemons.policies.planification_policy import PlanificationPolicy
 from api.interfaces.job import Job

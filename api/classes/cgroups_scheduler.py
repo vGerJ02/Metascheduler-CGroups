@@ -1,7 +1,5 @@
 import time
 from copy import deepcopy
-from time import sleep
-
 from api.classes.apache_hadoop import ApacheHadoop
 from api.classes.sge import SGE
 from typing import List, Tuple

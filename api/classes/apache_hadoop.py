@@ -120,6 +120,7 @@ class ApacheHadoop(Scheduler):
         response = self.master_node.send_command(
             f'export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list'
         )
+        print(response)
         return response
 
     def _is_any_job_running(self, response: str) -> bool:
@@ -135,6 +136,7 @@ class ApacheHadoop(Scheduler):
     def adjust_nice_of_all_jobs(self, new_nice: int):
         for node in self.nodes:
             ps_output = node.send_command(f'ps -eo pid,comm,nice')
+            print(ps_output)
             job_processes_pid_nice: Tuple[int, int] = self._get_job_processes_from_ps(
                 ps_output)
             for pid, actual_nice in job_processes_pid_nice:
