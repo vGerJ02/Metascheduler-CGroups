@@ -1,30 +1,68 @@
-[![Pylint](https://github.com/peremunoz/metascheduler/actions/workflows/pylint.yml/badge.svg)](https://github.com/peremunoz/metascheduler/actions/workflows/pylint.yml) [![Pytest on API](https://github.com/peremunoz/metascheduler/actions/workflows/pytest.yml/badge.svg)](https://github.com/peremunoz/metascheduler/actions/workflows/pytest.yml)
+# 🚀 Metascheduler (Cgroups-enhanced)
 
-# Metascheduler
+This is the **next version of the original Python job metascheduler by Pere Muñoz**, extended and improved as part of my thesis. It manages workflows in a **hybrid cluster environment** (Hadoop + SGE) while introducing **fine-grained resource management using cgroups v2**, allowing better control of CPU per scheduler.
 
-A job-metascheduler developed in Python. Used to manage workflows in a hybrid cluster ecosystem, with Hadoop and SGE as cluster frameworks, but has been implemented the most generic way possible, to allow other cluster frameworks to work effortless.
+---
 
-This repository is mainly divided into two different parts:
+## ✨ Key Features
 
-- The API, which is the core of the metascheduler, and is responsible for managing the jobs and the cluster frameworks.
-- The Client (CLI), which is a command-line interface that allows the user to interact with the API.
+- Homogeneous node architecture: Each node runs both SGE and Hadoop, managed under a unified metascheduler.
+- CgroupsScheduler: Encapsulates SGE and Hadoop, creating sub-cgroups for each scheduler to control CPU weights and memory limits dynamically.
+- Dynamic resource allocation: Supports multiple scheduling policies (Best Effort, Shared, Exclusive, Dynamic) to optimize throughput and fairness in hybrid environments.
+- Concurrent HPC + Big Data workloads: Jobs from SGE and Hadoop can coexist on the same nodes with minimal interference.
+- Monitoring and adjustment: Resource usage is tracked in real-time, and CPU weights and memory can be adjusted via API and SSH/Fabric commands.
 
-## Installation
+---
 
-Each of the components has its own installation process, so please refer to the README files in the corresponding directories. (Both are using pipfile for dependency management)
+## 📁 Repository Structure
 
-## Usage
+- `api/`: Core of the metascheduler. Manages jobs, scheduling, and resource allocation via cgroups.
+- `client/`: Typer-based CLI to submit, monitor, and control jobs through the API.
+- `local_test_scenario/`: Docker Compose setup for SGE and Hadoop nodes to simulate a hybrid cluster. Includes scripts to generate test jobs and input data.
 
-The API is a RESTful API, so it can be used with any HTTP client. The client is a command-line interface that allows the user to interact with the API. To test it in a local environment, you have to set up the API with the master nodes of the cluster frameworks you want to use, using the configuration file.
+---
 
-In the folder `local_test_scenario` you can find two folders, one for each cluster framework, with the docker-compose files to set up a local environment to test the metascheduler. The SGE cluster framework is already set up with a master node and a worker node, and the Hadoop cluster framework is set up with all the necessary nodes, but you will face some issues related to the Hadoop users permissions. Inside the `local_test_scenario/hadoop` folder, you can find a init_command.txt file with the commands you have to run to set up the Hadoop users, to allow the API to interact with the Hadoop cluster.
+## 🛠️ Installation
 
-### Generate the test files
+Each component has its own installation process. See the README in the respective directories.  
+Dependencies are managed with `pipenv`.
 
-The test scenario can be tested with the `test.sh` file, which sends different jobs to the metascheduler queue using the metascheduler client. The test files and test jobs can be user-defined, but to test the performance of the metascheduler during the thesis, in the SGE it has been used the `N` job, and in the Hadoop the `wordcount problem`.
+---
 
-To generate the words files I used the following tool:
+## 🧪 Usage
 
-`pwgen -A 8 1000 > words1000.txt`
+1. Set up the API with the master nodes of the cluster frameworks using the configuration file.
+2. Use the client CLI to submit jobs, apply scheduling policies, and monitor resource usage.
+3. For local testing, use the `local_test_scenario` folder containing Docker Compose setups for SGE and Hadoop.
 
-And to generate the `test_jobXXXXX.sh` I used the well-known problem `sum of squares` with different values of `n`.
+---
+
+## 🧵 Test Jobs
+
+SGE test jobs: Sum-of-squares or user-defined shell scripts.
+
+Hadoop test jobs: Wordcount problems with different dataset sizes.
+
+Test execution: Use `test.sh` in the `local_test_scenario` folder to submit multiple jobs to the metascheduler queue automatically.
+
+---
+
+## ⚙️ Scheduling Policies
+
+The metascheduler supports different scheduling policies, implemented via `CgroupsScheduler`:
+
+- **Dynamic**: Adjusts CPU weights and memory limits automatically based on job usage, maximizing throughput and fairness.
+- **Best Effort**: Jobs take unused CPU and memory resources when available.
+- **Shared**: Divides resources evenly between SGE and Hadoop.
+- **Exclusive**: Assigns resources exclusively to each scheduler to avoid interference, but may reduce overall efficiency.
+
+`CgroupsScheduler` is responsible for creating sub-cgroups, assigning jobs, and adjusting CPU weights dynamically, enabling fine-grained resource control in hybrid HPC + Big Data workloads.
+
+---
+
+## 📚 References
+
+Original metascheduler by Pere Muñoz:  
+https://github.com/peremunoz/metascheduler.git
+
+This version extends the original metascheduler with cgroups-based resource control, hybrid scheduling policies, and improved performance monitoring.

@@ -111,7 +111,6 @@ class SGE(Scheduler):
         assigned_job_id = self._parse_qsub(message)
         return assigned_job_id
 
-
     def _parse_qsub(self, qsub_output) -> int:
         '''
         Parse the output of the qsub command
@@ -173,7 +172,8 @@ class SGE(Scheduler):
                 continue
             if int(line.split()[5]) in sge_executors:
                 job_processes_pid_nice_cpu_mem.append(
-                    (int(line.split()[0]), int(line.split()[2]), float(line.split()[3]), float(line.split()[4]), line.split()[6]))
+                    (int(line.split()[0]), int(line.split()[2]), float(line.split()[3]), float(line.split()[4]),
+                     line.split()[6]))
         return job_processes_pid_nice_cpu_mem
 
     def _get_job_processes_from_ps(self, ps_output: str) -> Tuple[int, int, str]:
@@ -200,16 +200,23 @@ class SGE(Scheduler):
         return job_processes_pid_nice
 
     def get_sge_process_tree(self) -> list[str]:
+        """
+            Retrieves the full process tree associated with Sun Grid Engine (SGE) components on the master node.
+
+            This function executes a Bash script that:
+            - Locates core SGE processes (e.g., sge_qmaster, sge_execd, sge_shepherd) using `ps`.
+            - Extracts all system processes with their PID and PPID.
+            - Recursively builds the tree of child processes starting from the SGE roots.
+            - Returns a sorted, unique list of all related PIDs.
+
+            Enables fine-grained resource control using cgroups across the entire SGE execution environment,
+            improving fairness and system stability.
+        """
         cmd = (
             "bash -c '"
-            # Obtenim els PIDs inicials de processos SGE
             "ps -eo pid,cmd | grep -E \"sge_qmaster|sge_execd|sge_shadowd|sge_shepherd\" "
             "| grep -v grep | awk \"{print \\$1}\" > /tmp/sge_roots.txt && "
-
-            # Guardem tots els pids i ppids
             "ps -eo pid,ppid > /tmp/all_procs.txt && "
-
-            # Funció recursiva per trobar fills
             "function get_children() { "
             "  local pid=$1; "
             "  echo $pid; "
@@ -217,16 +224,12 @@ class SGE(Scheduler):
             "    get_children $child; "
             "  done; "
             "} ; "
-
-            # Recorrer tots els processos arrel
             "ALL=\"\"; "
             "for pid in $(cat /tmp/sge_roots.txt); do "
             "  ALL=\"$ALL $(get_children $pid)\"; "
             "done; "
 
-            # Sortida neta
             "echo $ALL | tr \" \" \"\\n\" | sort -n | uniq'"
         )
         output = self.master_node.send_command(cmd)
         return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
-

@@ -30,7 +30,7 @@ class ApacheHadoop(Scheduler):
 
     def _init_hdfs_user_dir(self, user: str):
         """
-        Inicialitza els directoris necessaris al HDFS
+        Initialize the necessary directories in HDFS
         """
         hdfs_user_dir = f"/user/{user}"
         check_cmd = f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/hdfs dfs -test -d {hdfs_user_dir}"
@@ -83,7 +83,7 @@ class ApacheHadoop(Scheduler):
 
     def _call_yarn_jar(self, job: Job):
         '''
-        Prepara l’entorn HDFS i executa el job Hadoop.
+        Prepare the HDFS environment and run the Hadoop job.
         '''
         hdfs_user_dir = f"/user/{job.owner}"
         parts = job.options.split()
@@ -196,6 +196,18 @@ class ApacheHadoop(Scheduler):
                 node.send_command(f'renice 0 {pid}')
 
     def get_hadoop_process_tree(self) -> list[str]:
+        """
+            Retrieves the full process tree associated with Hadoop components on the master node.
+
+            This function executes a Bash script that:
+            - Identifies key Hadoop processes (e.g., NameNode, DataNode, ResourceManager) using `jps`.
+            - Extracts all system processes with their PID and PPID.
+            - Recursively builds the tree of child processes starting from the Hadoop roots.
+            - Returns a sorted, unique list of all related PIDs.
+
+            Useful for applying resource control policies via cgroups to the entire Hadoop workload,
+            ensuring consistent isolation and monitoring.
+        """
         cmd = (
             "bash -c '"
             "jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell|RunJar|MRAppMaster|ApplicationCLI|YarnChild|SecondaryNameNode\" | awk \"{print \\$1}\" > /tmp/hadoop_roots.txt && "

@@ -13,7 +13,6 @@ LOW_CPU_WEIGHT = 5000
 HIGH_CPU_WEIGHT = 10000
 
 
-
 class BestEffortPolicy(PlanificationPolicy):
     ''' The Best Effort Policy is a planification policy that allows all schedulers
     to run jobs concurrently, but prioritizes the jobs of the scheduler with the
@@ -84,14 +83,14 @@ class BestEffortPolicy(PlanificationPolicy):
             try:
                 result = int(node.send_command(cmd_check))
             except ValueError:
-                print(f"Node {node.id_}: Error llegint permisos del cgroup")
+                print(f"Node {node.id_}: Error reading cgroup permissions")
                 continue
 
             if int(result) == 0:
                 try:
                     node.send_command(cmd_set)
-                    print(f"Node {node.id_}: cpu.weight set correctament a {weight}")
+                    print(f"Node {node.id_}: cpu.weight successfully set to {weight}")
                 except Exception as e:
-                    print(f"Node {node.id_}: Error establint cpu.weight ja que el node no te permissos suficients o cgroups incorrecte")
+                    print(f"Node {node.id_}: Failed to set cpu.weight — insufficient permissions or invalid cgroup path")
             else:
-                print(f"Node {node.id_}: no es pot escriure a cgroup, s'omet l'ajust")
+                print(f"Node {node.id_}: cgroup path not accessible — skipping adjustment")

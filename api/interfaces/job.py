@@ -13,7 +13,7 @@ class Job:
 
     def __init__(self, id_: int = None, queue: int = -1, name: str = None,
                  created_at: datetime = None, owner: str = None,
-                 status: JobStatus = JobStatus.TO_BE_QUEUED, path: Path = None,  scheduler_type: str = '',
+                 status: JobStatus = JobStatus.TO_BE_QUEUED, path: Path = None, scheduler_type: str = '',
                  options: str = '', scheduler_job_id: int = None, pwd: Path = None):
         self.id_ = id_
         self.queue = queue
@@ -25,17 +25,15 @@ class Job:
         else:
             self.status = JobStatus(status)
         self.path = path
-        #self.path = "/home/metascheduler/" + name
         self.options = options
         self.scheduler_job_id = scheduler_job_id
-        #self.pwd = pwd
         self.pwd = "/home/metascheduler"
         self.scheduler_type = self._validate_scheduler_code(scheduler_type)
 
     @staticmethod
     def _validate_scheduler_code(code: str) -> str:
         '''
-        Mètode privat que valida si el codi és 'S' o 'H'. Guarda només la lletra.
+        Private method that validates whether the code is 'S' or 'H'. Stores only the letter.
         '''
         valid_codes = {'S', 'H'}
         if not isinstance(code, str):

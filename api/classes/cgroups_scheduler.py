@@ -20,7 +20,6 @@ class CgroupsScheduler(Scheduler):
         self.hadoop = ApacheHadoop()
         self.sge = SGE()
         self.parent_cgroup_path = ""
-        # Primeres lectures: suposem 0 microsec i ara
         self._last_usage = 0
         self._last_time = time.time()
 
@@ -34,9 +33,6 @@ class CgroupsScheduler(Scheduler):
 
         self.sge.set_master_node(sge_node)
         self.hadoop.set_master_node(hadoop_node)
-        time.sleep(0.5)
-
-        print("NODES DE CGROUPS: " + str(self.nodes))
 
         # Assign persistent Hadoop and SGE processes to their cgroups
         self.assign_pids_to_cgroup(self.hadoop.get_hadoop_process_tree(), "hadoop")
@@ -236,14 +232,13 @@ class CgroupsScheduler(Scheduler):
                 None
             )
             if not usage_line:
-                print("⚠️ cpu.stat no conté 'usage_usec'")
+                print("⚠️ cpu.stat does not contain 'usage_use'")
                 return 0.0
 
             current_usage = int(usage_line.split()[1])
             now = time.time()
             elapsed = now - self._last_time
 
-            # Actualitza per la següent crida
             delta_usage = current_usage - self._last_usage
             self._last_usage = current_usage
             self._last_time = now
@@ -256,7 +251,7 @@ class CgroupsScheduler(Scheduler):
             return min(100.0, max(0.0, cpu_percent))
 
         except Exception as e:
-            print(f"⚠️ Error llegint cpu.stat amb send_command(): {e}")
+            print(f"⚠️ Error reading cpu.stat with send_command(): {e}")
             return 0.0
 
     def set_cpu_weight(self, weight: int):

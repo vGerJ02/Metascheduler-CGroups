@@ -6,9 +6,9 @@ class SchedulerType(Enum):
 
     @classmethod
     def from_short(cls, short_code: str) -> "SchedulerType":
-        '''
-        Accepta codi curt ('S', 'H') i retorna l'enum corresponent.
-        '''
+        """
+        Accepts a short code ('S', 'H') and returns the corresponding enum value.
+        """
         mapping = {
             "S": cls.SGE,
             "H": cls.HADOOP
@@ -17,10 +17,10 @@ class SchedulerType(Enum):
 
     @classmethod
     def name_from_code(cls, code: str) -> str:
-        '''
-        Accepta codi curt ('S', 'H') i retorna el nom desplegat ('SGE' o 'Hadoop')
-        '''
+        """
+        Accepts a short code ('S', 'H') and returns the full scheduler name ('SGE' or 'Hadoop').
+        """
         scheduler = cls.from_short(code)
         if scheduler is None:
-            return code  # o pots llançar ValueError si vols forçar validació
+            return code
         return scheduler.value

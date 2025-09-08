@@ -59,12 +59,9 @@ class DynamicPolicy(PlanificationPolicy):
         """
         Adjusts cgroup parameters dynamically based on job usage:
         - cpu.weight: for CPU share
-        - memory.high: for memory limit
         """
-        print("Total de jobs: " + str(len(jobs_info)))
         avg_cpu = sum(job[2] for job in jobs_info) / len(jobs_info)
         avg_cpu_scaled = int(avg_cpu * 100)
-
 
         # Adjust CPU weight
         target_cpu_weight = int(scheduler.weight / 100 * 10000)  # 1–10000
