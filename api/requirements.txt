@@ -1,0 +1,9 @@
+rich
+typer
+fastapi
+uvicorn[standard]
+icmplib
+httpx
+pytest
+pytest-env
+pylint
