@@ -6,7 +6,7 @@ from api.interfaces.scheduler import Scheduler
 from api.routers.jobs import set_job_scheduler_job_id, update_job_status
 import xml.etree.ElementTree as ET
 
-SGE_ROOT = '/opt/sge/'
+SGE_ROOT = '/usr/local/sge/'
 QSTAT = SGE_ROOT + 'bin/lx-amd64/qstat'
 QSUB = SGE_ROOT + 'bin/lx-amd64/qsub'
 
