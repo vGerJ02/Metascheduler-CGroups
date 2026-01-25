@@ -6,6 +6,7 @@ test_job_1: PostJobModel = {
     'queue': 1,
     'owner': 'owner1',
     'path': '/path/to/job1',
+    'scheduler_type': 'H',
     'options': '--option1 value1 --option2 value2'
 }
 
@@ -14,6 +15,7 @@ test_job_2: PostJobModel = {
     'queue': 1,
     'owner': 'owner2',
     'path': '/path/to/job2',
+    'scheduler_type': 'H',
     'options': '--option1 value1 --option2 value2'
 }
 
@@ -22,6 +24,7 @@ test_job_3: PostJobModel = {
     'queue': 2,
     'owner': 'owner3',
     'path': '/path/to/job3',
+    'scheduler_type': 'S',
     'options': '--option1 value1 --option2 value2'
 }
 
@@ -29,7 +32,8 @@ test_job_4_no_options: PostJobModel = {
     'name': 'job4',
     'queue': 2,
     'owner': 'owner4',
-    'path': '/path/to/job4'
+    'path': '/path/to/job4',
+    'scheduler_type': 'S'
 }
 
 

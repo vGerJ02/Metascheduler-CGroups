@@ -92,7 +92,7 @@ class JobMonitorDaemon(metaclass=Singleton):
         pass
 
     def _collect_metrics(self):
-        '''Collect CPU, RAM and disk usage samples for every running job and persist them.'''
+        '''Collect CPU/RAM/Disk usage samples for every running job and persist them.'''
         log('Collecting metrics...')
         try:
             db = DatabaseHelper(self.config.schedulers)
@@ -108,8 +108,10 @@ class JobMonitorDaemon(metaclass=Singleton):
                     continue
 
                 for job in running_jobs:
-                    cpu, ram, read_bytes, write_bytes = self._usage_for_job( job, running_jobs, usage_by_user)
-                    db.insert_job_metric(job.id_, cpu, ram, read_bytes, write_bytes, collected_at)
+                    cpu, ram, read_bytes, write_bytes = self._usage_for_job(
+                        job, running_jobs, usage_by_user)
+                    db.insert_job_metric(
+                        job.id_, cpu, ram, read_bytes, write_bytes, collected_at)
         except Exception as exc:
             log(f'Error collecting metrics: {exc}')
 
@@ -149,4 +151,3 @@ class JobMonitorDaemon(metaclass=Singleton):
             user_usage['read'] / divisor,
             user_usage['write'] / divisor,
         )
-

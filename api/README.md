@@ -34,10 +34,14 @@ After that, you can run the project with the following command:
 ```bash
 export PYTHONPATH=.. && python3 main.py <config-file> [OPTIONS]
 ```
+
+### SSH connectivity
+- `--ssh-key-file` and `--ssh-user` are passed to every node via SSH.
+- Tune SSH timeouts with env vars if you see slow connections or `Error reading SSH protocol banner`: `SSH_TIMEOUT` (connect, seconds, default 10), `SSH_BANNER_TIMEOUT` (wait for banner, default 30), `SSH_AUTH_TIMEOUT` (auth phase, default 30).
+- Ensure the configured node `port` points to an SSH service that is reachable from the host running the API.
 ### Possible options to run the project
 - `--host`: The host of the API. Default: 0.0.0.0
 - `--port`: The port of the API. Default: 8000
 - `--database-file`: The database file. Default: /db/db.sqlite3
 - `--ssh-key-file`: The ssh key file. Default: System default
 - `--ssh-user`: The ssh user. Default: metascheduler
-

@@ -2,6 +2,7 @@ from time import sleep
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
+from api.interfaces.node import Node
 from api.interfaces.scheduler import Scheduler
 from api.routers.jobs import update_job_status, set_job_scheduler_job_id
 from api.interfaces.node import Node
@@ -167,7 +168,7 @@ class ApacheHadoop(Scheduler):
         ps_output = node.send_command(f'ps -eo pid,comm,nice,%cpu,%mem,user')
         job_info = self._get_job_info_from_ps(ps_output)
         if not job_info:
-            return [] 
+            return job_info
         io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
         return [
             (
@@ -280,4 +281,3 @@ class ApacheHadoop(Scheduler):
         )
         output = self.master_node.send_command(cmd)
         return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
-

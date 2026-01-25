@@ -42,31 +42,9 @@ class Node:
             str: The response from the node.
         '''
         try:
-            ssh_cmd = self._build_ssh_command(command)
-            
-            result = subprocess.run(
-                ssh_cmd,
-                capture_output=True,
-                text=True,
-                timeout=float(os.getenv('SSH_TIMEOUT', '30'))
-            )
-            
-            if result.returncode != 0 and critical:
-                error_msg = result.stderr.strip() or result.stdout.strip()
-                raise RuntimeError(
-                    f'SSH command failed with exit code {result.returncode}: {error_msg}'
-                )
-            
-            return result.stdout
-            
-        except subprocess.TimeoutExpired as e:
-            error_message = (
-                f'SSH command timed out against {self.ip}:{self.port} as '
-                f'{os.getenv("SSH_USER")} while running "{command}"'
-            )
-            if critical:
-                raise RuntimeError(error_message) from e
-            return error_message
+            with self._get_connection() as conn:
+                result = conn.run(command, hide=True)
+                return result.stdout
         except Exception as e:
             error_message = (
                 f'SSH command failed against {self.ip}:{self.port} as '
@@ -82,46 +60,33 @@ class Node:
         Args:
             command (str): The command to send.
         '''
+
         def run_command():
             try:
-                ssh_cmd = self._build_ssh_command(command)
-                subprocess.run(
-                    ssh_cmd,
-                    capture_output=True,
-                    timeout=float(os.getenv('SSH_TIMEOUT', '30'))
-                )
+                with self._get_connection() as conn:
+                    conn.run(command, hide=True)
             except Exception as e:
                 raise e
 
         thread = threading.Thread(target=run_command)
         thread.start()
 
-    def _build_ssh_command(self, command: str) -> list[str]:
+    def _get_connection(self) -> Connection:
         '''
-        Build the SSH command as a list for subprocess.
-        Args:
-            command (str): The command to execute on the remote host.
-        Returns:
-            list[str]: The SSH command as a list.
+        Build the SSH connection with configurable timeouts to avoid banner
+        read errors on slow or busy nodes.
         '''
-        ssh_user = os.getenv('SSH_USER')
         ssh_key_file = os.getenv('SSH_KEY_FILE')
+        connect_kwargs = {
+            'banner_timeout': float(os.getenv('SSH_BANNER_TIMEOUT', '30')),
+            'auth_timeout': float(os.getenv('SSH_AUTH_TIMEOUT', '30')),
+            'timeout': float(os.getenv('SSH_TIMEOUT', '10')),
+            'allow_agent': True,
+            'look_for_keys': True,
+        }
         ssh_password = os.getenv('SSH_PASSWORD')
-        
-        if not ssh_user:
-            raise ValueError('SSH_USER environment variable is not set')
-        
-        # Build SSH command
-        ssh_cmd = [
-            'ssh',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', f'ConnectTimeout={os.getenv("SSH_TIMEOUT", "10")}',
-            '-o', 'BatchMode=yes',  # Disable password prompts
-            '-p', str(self.port),
-        ]
-        
-        # Add key file if provided
+        if ssh_password:
+            connect_kwargs['password'] = ssh_password
         if ssh_key_file:
             key_path = Path(ssh_key_file).expanduser()
             if not key_path.is_file():
@@ -130,21 +95,16 @@ class Node:
             if key_path.suffix == '.pub':
                 raise ValueError(
                     f'SSH_KEY_FILE must be a private key, not a public key: {key_path}')
-            
-            ssh_cmd.extend(['-i', str(key_path)])
-        
-        # Add user@host
-        ssh_cmd.append(f'{ssh_user}@{self.ip}')
-        
-        # Add the command to execute
-        ssh_cmd.append(command)
-        
-        # Handle password authentication if needed (requires sshpass)
-        if ssh_password and not ssh_key_file:
-            # Prepend sshpass to the command
-            ssh_cmd = ['sshpass', '-p', ssh_password] + ssh_cmd
-        
-        return ssh_cmd
+            connect_kwargs['key_filename'] = str(key_path)
+            passphrase = os.getenv('SSH_KEY_PASSPHRASE')
+            if passphrase:
+                connect_kwargs['passphrase'] = passphrase
+        return Connection(
+            self.ip,
+            port=self.port,
+            user=os.getenv('SSH_USER'),
+            connect_kwargs=connect_kwargs,
+        )
 
     def _is_alive(self) -> bool | None:
         '''
