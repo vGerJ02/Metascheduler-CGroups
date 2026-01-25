@@ -89,7 +89,7 @@ class ApacheHadoop(Scheduler):
         Prepare the HDFS environment and run the Hadoop job.
         '''
         hdfs_user_dir = f"/user/{job.owner}"
-        parts = job.options.split()
+        parts, meta = self._split_hadoop_options(job.options)
         if len(parts) < 3:
             raise ValueError("job.options ha de tenir almenys 3 parts: classe, input_file i output_dir")
 
@@ -109,8 +109,17 @@ class ApacheHadoop(Scheduler):
 
         self._init_hdfs_user_dir(job.owner)
 
-        cmds = [
+        env_cmds = [
             f"export JAVA_HOME={JAVA_HOME}",
+        ]
+        if meta.get("quiet"):
+            env_cmds.extend([
+                "export HADOOP_ROOT_LOGGER=ERROR,console",
+                "export YARN_ROOT_LOGGER=ERROR,console",
+                "export MAPREDUCE_ROOT_LOGGER=ERROR,console",
+            ])
+
+        cmds = env_cmds + [
             f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_path} {hdfs_user_dir}/",
             f"{HADOOP_HOME}/bin/hdfs dfs -rm -r -f {hdfs_user_dir}/{output_dir}",
             f"cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {main_class} {hdfs_user_dir}/{input_file} {hdfs_user_dir}/{output_dir}"
@@ -118,6 +127,17 @@ class ApacheHadoop(Scheduler):
 
         full_command = f"sudo -u {job.owner} sh -c '{' && '.join(cmds)}'"
         self.master_node.send_command_async(full_command)
+
+    def _split_hadoop_options(self, options: str) -> Tuple[List[str], dict]:
+        tokens = options.split()
+        meta = {"quiet": False}
+        remaining: List[str] = []
+        for token in tokens:
+            if token == "--ms-hadoop-quiet":
+                meta["quiet"] = True
+                continue
+            remaining.append(token)
+        return remaining, meta
 
     def _call_yarn_application(self) -> str:
         '''
