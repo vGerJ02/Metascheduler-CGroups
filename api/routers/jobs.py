@@ -43,6 +43,15 @@ def read_job(job_id: int, owner: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
+@router.get('/{job_id}/metrics')
+def read_job_metrics(job_id: int, owner: str):
+    try:
+        read_job(job_id, owner)
+        return DatabaseHelper().get_job_metrics(job_id)
+    except HTTPException as exc:
+        raise exc
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.post('', status_code=201)
 def create_job(job: PostJobModel):

@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import os
 
 from api.constants.scheduler_type import SchedulerType
 from api.constants.job_status import JobStatus
@@ -27,8 +28,17 @@ class Job:
         self.path = path
         self.options = options
         self.scheduler_job_id = scheduler_job_id
-        self.pwd = "/home/metascheduler"
+        # self.pwd = "/home/metascheduler"
+        self.pwd = str(pwd) if pwd else self._default_pwd()
         self.scheduler_type = self._validate_scheduler_code(scheduler_type)
+
+    @staticmethod
+    def _default_pwd() -> str:
+
+        ssh_user = os.getenv("SSH_USER")
+        if ssh_user:
+            return f"/home/{ssh_user}"
+        return str(Path.home())
 
     @staticmethod
     def _validate_scheduler_code(code: str) -> str:

@@ -2,6 +2,7 @@ import time
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
+from api.interfaces.node import Node
 from api.interfaces.scheduler import Scheduler
 from api.routers.jobs import set_job_scheduler_job_id, update_job_status
 import xml.etree.ElementTree as ET
@@ -118,7 +119,7 @@ class SGE(Scheduler):
         '''
         return int(qsub_output.split()[2])
 
-    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
+    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
         '''
         Get the information of all running jobs
 
@@ -126,7 +127,22 @@ class SGE(Scheduler):
         node = self.master_node
         ps_output = node.send_command(
             f'ps -eo pid,comm,nice,%cpu,%mem,ppid,user')
-        return self._get_job_info_from_ps(ps_output)
+        job_info = self._get_job_info_from_ps(ps_output)
+        if not job_info:
+            return []
+        io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
+        return [
+            (
+                pid,
+                nice,
+                cpu,
+                mem,
+                user,
+                io_by_pid.get(pid, (0.0, 0.0))[0],
+                io_by_pid.get(pid, (0.0, 0.0))[1],
+            )
+            for pid, nice, cpu, mem, user in job_info
+        ]
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
         '''
@@ -175,6 +191,33 @@ class SGE(Scheduler):
                     (int(line.split()[0]), int(line.split()[2]), float(line.split()[3]), float(line.split()[4]),
                      line.split()[6]))
         return job_processes_pid_nice_cpu_mem
+
+    def _get_io_by_pid(self, node: Node, pids: List[int]) -> dict[int, tuple[float, float]]:
+        if not pids:
+            return {}
+        pid_list = " ".join(str(pid) for pid in pids)
+        cmd = (
+            "bash -c '"
+            f"for pid in {pid_list}; do "
+            "read_bytes=$(sudo -n awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
+            "awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
+            "write_bytes=$(sudo -n awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
+            "awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
+            "read_bytes=${read_bytes:-0}; write_bytes=${write_bytes:-0}; "
+            "echo \"$pid $read_bytes $write_bytes\"; "
+            "done'"
+        )
+        output = node.send_command(cmd, critical=False)
+        io_by_pid = {}
+        for line in output.splitlines():
+            parts = line.split()
+            if len(parts) != 3:
+                continue
+            try:
+                io_by_pid[int(parts[0])] = (float(parts[1]), float(parts[2]))
+            except ValueError:
+                continue
+        return io_by_pid
 
     def _get_job_processes_from_ps(self, ps_output: str) -> Tuple[int, int, str]:
         '''

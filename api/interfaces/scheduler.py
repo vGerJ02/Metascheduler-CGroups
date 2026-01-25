@@ -76,10 +76,11 @@ class Scheduler:
         '''
         raise NotImplementedError
 
-    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str]]:
+    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
         '''
         Get the information of all running jobs.
-        Being: job_pid, job_nice, job_cpu_usage, job_memory_usage
+        Being: job_pid, job_nice, job_cpu_usage, job_memory_usage, job_owner,
+        job_read_bytes, job_write_bytes
 
         '''
         raise NotImplementedError

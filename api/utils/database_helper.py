@@ -3,6 +3,7 @@
 import os
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 from time import sleep
 from typing import List
 from api.constants.job_status import JobStatus
@@ -68,6 +69,7 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._create_queues_table()
         self._create_jobs_table()
+        self._create_job_metrics_table()
 
     def _create_queues_table(self) -> None:
         '''Creates the queues table in the database.'''
@@ -95,6 +97,35 @@ class DatabaseHelper(metaclass=Singleton):
             FOREIGN KEY(queue_id) REFERENCES queues(id))''')
         self._con.commit()
 
+    def _create_job_metrics_table(self) -> None:
+        '''Creates the job metrics table in the database.'''
+
+        self._cur.execute('''CREATE TABLE IF NOT EXISTS job_metrics
+            (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            collected_at DATETIME NOT NULL,
+            cpu_usage REAL NOT NULL,
+            ram_usage REAL NOT NULL,
+            disk_read_bytes REAL NOT NULL DEFAULT 0,
+            disk_write_bytes REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE)''')
+        self._con.commit()
+        self._ensure_job_metrics_columns()
+
+    def _ensure_job_metrics_columns(self) -> None:
+        '''Ensure job_metrics has columns needed for newer metrics.'''
+        self._cur.execute('PRAGMA table_info(job_metrics)')
+        columns = {row[1] for row in self._cur.fetchall()}
+        if 'disk_read_bytes' not in columns:
+            self._cur.execute(
+                'ALTER TABLE job_metrics ADD COLUMN disk_read_bytes REAL NOT NULL DEFAULT 0'
+            )
+        if 'disk_write_bytes' not in columns:
+            self._cur.execute(
+                'ALTER TABLE job_metrics ADD COLUMN disk_write_bytes REAL NOT NULL DEFAULT 0'
+            )
+        self._con.commit()
+
     def _refresh_connection(self) -> None:
         '''Refreshes the connection to the database.'''
 
@@ -106,6 +137,7 @@ class DatabaseHelper(metaclass=Singleton):
         '''Resets the database for testing purposes.'''
 
         self._refresh_connection()
+        self._cur.execute('DROP TABLE IF EXISTS job_metrics')
         self._cur.execute('DROP TABLE IF EXISTS jobs')
         self._cur.execute('DROP TABLE IF EXISTS queues')
         self._con.commit()
@@ -236,3 +268,45 @@ class DatabaseHelper(metaclass=Singleton):
         self._cur.execute(
             'UPDATE jobs SET scheduler_job_id = ? WHERE id = ? AND owner = ?', (scheduler_job_id, job_id, owner))
         self._con.commit()
+
+    def insert_job_metric(
+        self,
+        job_id: int,
+        cpu_usage: float,
+        ram_usage: float,
+        disk_read_bytes: float = 0.0,
+        disk_write_bytes: float = 0.0,
+        collected_at: datetime | None = None
+    ) -> None:
+        '''Insert a metric sample for a job.'''
+        self._refresh_connection()
+        collected_at = collected_at or datetime.utcnow()
+        try:
+            self._cur.execute(
+                'INSERT INTO job_metrics (job_id, collected_at, cpu_usage, ram_usage, disk_read_bytes, disk_write_bytes) VALUES (?, ?, ?, ?, ?, ?)',
+                (job_id, collected_at.isoformat(), cpu_usage, ram_usage, disk_read_bytes, disk_write_bytes)
+            )
+            self._con.commit()
+        except sqlite3.IntegrityError as exc:
+            raise Exception(f'Job {job_id} not found') from exc
+
+    def get_job_metrics(self, job_id: int) -> List[dict]:
+        '''Return all stored metric samples for a job ordered by collection time.'''
+        self._refresh_connection()
+        self._cur.execute(
+            'SELECT id, job_id, collected_at, cpu_usage, ram_usage, disk_read_bytes, disk_write_bytes FROM job_metrics WHERE job_id = ? ORDER BY collected_at ASC',
+            (job_id,)
+        )
+        rows = self._cur.fetchall()
+        return [
+            {
+                'id': row[0],
+                'job_id': row[1],
+                'collected_at': row[2],
+                'cpu_usage': row[3],
+                'ram_usage': row[4],
+                'disk_read_bytes': row[5],
+                'disk_write_bytes': row[6],
+            } for row in rows
+        ]
+
