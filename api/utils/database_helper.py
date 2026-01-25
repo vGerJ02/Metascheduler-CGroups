@@ -309,4 +309,3 @@ class DatabaseHelper(metaclass=Singleton):
                 'disk_write_bytes': row[6],
             } for row in rows
         ]
-

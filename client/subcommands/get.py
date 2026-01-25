@@ -47,6 +47,17 @@ class JobMetricResponse:
     disk_read_bytes: float
     disk_write_bytes: float
 
+@dataclass
+class JobMetricResponse:
+    id: int
+    job_id: int
+    collected_at: datetime
+    cpu_usage: float
+    ram_usage: float
+    disk_read_bytes: float
+    disk_write_bytes: float
+
+
 class JobStatus(str, Enum):
     QUEUED = 'QUEUED'
     RUNNING = 'RUNNING'
@@ -198,6 +209,35 @@ def job(id: Annotated[int, typer.Argument(help="The Job ID.")]):
 
     panel = Panel(table, border_style="green")
     print(panel)
+
+@app.command("job-metrics", help="Get metrics for a specific job.")
+def job_metrics(id: Annotated[int, typer.Argument(help="The Job ID.")]):
+    params = {}
+    params["owner"] = os.getenv("USER")
+    response: Response = HTTP_Client().get(f'/jobs/{id}/metrics', params)
+    metrics_raw = response.json()
+    metrics = [JobMetricResponse(**metric) for metric in metrics_raw]
+
+    table = Table(title=f"Job Metrics (Job {id})", show_header=True,
+                  header_style="bold magenta")
+    table.add_column("Collected At", style="dim")
+    table.add_column("CPU (%)", style="dim")
+    table.add_column("RAM (%)", style="dim")
+    table.add_column("Disk Read (B)", style="dim")
+    table.add_column("Disk Write (B)", style="dim")
+
+    for metric in metrics:
+        table.add_row(
+            str(metric.collected_at),
+            f"{metric.cpu_usage:.2f}",
+            f"{metric.ram_usage:.2f}",
+            f"{metric.disk_read_bytes:.0f}",
+            f"{metric.disk_write_bytes:.0f}",
+        )
+
+    panel = Panel(table, border_style="green")
+    print(panel)
+
 
 @app.command("job-metrics", help="Get metrics for a specific job.")
 def job_metrics(id: Annotated[int, typer.Argument(help="The Job ID.")]):
