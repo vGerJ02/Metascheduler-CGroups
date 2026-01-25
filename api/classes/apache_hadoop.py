@@ -4,11 +4,13 @@ from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
 from api.interfaces.scheduler import Scheduler
 from api.routers.jobs import update_job_status, set_job_scheduler_job_id
+from api.interfaces.node import Node
 import re
+import os
 
-HADOOP_HOME = '/opt/hadoop'
+HADOOP_HOME = '/usr/hdp/2.6.5.0-292/hadoop'
 # JAVA_HOME = '/usr/lib/jvm/jre/'
-JAVA_HOME = "/usr/lib/jvm/java-8-openjdk-amd64"
+JAVA_HOME = "/usr/lib/jvm/java-8-openjdk"
 
 
 # export JAVA_HOME=/usr/lib/jvm/jre/ && /opt/hadoop/bin/yarn jar /opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar pi 2 4
@@ -94,17 +96,21 @@ class ApacheHadoop(Scheduler):
         input_file = parts[1]
         output_dir = parts[2]
 
-        check_file_cmd = f"test -f {job.pwd}/{input_file}"
+        ssh_user = os.getenv('SSH_USER')
+        ssh_home = f"/home/{ssh_user}" if ssh_user else str(job.pwd)
+        input_path = f"{ssh_home}/{input_file}"
+        check_file_cmd = f"test -f {input_path}"
+
         try:
             self.master_node.send_command(check_file_cmd)
         except Exception:
-            raise FileNotFoundError(f"[ERROR] File '{input_file}' doesn't exist in {job.pwd}")
+            raise FileNotFoundError(f"[ERROR] File '{input_file}' doesn't exist in {ssh_home}")
 
         self._init_hdfs_user_dir(job.owner)
 
         cmds = [
             f"export JAVA_HOME={JAVA_HOME}",
-            f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_file} {hdfs_user_dir}/",
+            f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_path} {hdfs_user_dir}/",
             f"{HADOOP_HOME}/bin/hdfs dfs -rm -r -f {hdfs_user_dir}/{output_dir}",
             f"cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {main_class} {hdfs_user_dir}/{input_file} {hdfs_user_dir}/{output_dir}"
         ]
@@ -152,16 +158,31 @@ class ApacheHadoop(Scheduler):
         for node in self.nodes:
             node.send_command(f'renice {new_nice} {job_pid}')
 
-    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float]]:
+    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
         '''
         Get the information of all running jobs
 
         '''
         node = self.master_node
-        ps_output = node.send_command(f'ps -eo pid,comm,nice,%cpu,%mem')
-        return self._get_job_info_from_ps(ps_output)
+        ps_output = node.send_command(f'ps -eo pid,comm,nice,%cpu,%mem,user')
+        job_info = self._get_job_info_from_ps(ps_output)
+        if not job_info:
+            return [] 
+        io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
+        return [
+            (
+                pid,
+                nice,
+                cpu,
+                mem,
+                user,
+                io_by_pid.get(pid, (0.0, 0.0))[0],
+                io_by_pid.get(pid, (0.0, 0.0))[1],
+            )
+            for pid, nice, cpu, mem, user in job_info
+        ]
 
-    def _get_job_info_from_ps(self, ps_output: str) -> List[Tuple[int, int, float, float]]:
+    def _get_job_info_from_ps(self, ps_output: str) -> List[Tuple[int, int, float, float, str]]:
         '''
         Get the list of processes of the running jobs.
 
@@ -169,12 +190,44 @@ class ApacheHadoop(Scheduler):
 
         '''
         job_processes_pid_nice_cpu_mem = []
-        lines = ps_output.split('\n')
+        lines = ps_output.split('\n')[1:]
         for line in lines:
-            if 'java' in line:
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) < 6:
+                continue
+            if 'java' in parts[1]:
                 job_processes_pid_nice_cpu_mem.append(
-                    (int(line.split()[0]), int(line.split()[2]), float(line.split()[3]), float(line.split()[4])))
+                    (int(parts[0]), int(parts[2]), float(parts[3]), float(parts[4]), parts[5]))
         return job_processes_pid_nice_cpu_mem
+
+    def _get_io_by_pid(self, node: Node, pids: List[int]) -> dict[int, tuple[float, float]]:
+        if not pids:
+            return {}
+        pid_list = " ".join(str(pid) for pid in pids)
+        cmd = (
+            "bash -c '"
+            f"for pid in {pid_list}; do "
+            "read_bytes=$(sudo -n awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
+            "awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
+            "write_bytes=$(sudo -n awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
+            "awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
+            "read_bytes=${read_bytes:-0}; write_bytes=${write_bytes:-0}; "
+            "echo \"$pid $read_bytes $write_bytes\"; "
+            "done'"
+        )
+        output = node.send_command(cmd, critical=False)
+        io_by_pid = {}
+        for line in output.splitlines():
+            parts = line.split()
+            if len(parts) != 3:
+                continue
+            try:
+                io_by_pid[int(parts[0])] = (float(parts[1]), float(parts[2]))
+            except ValueError:
+                continue
+        return io_by_pid
 
     def _get_job_processes_from_ps(self, ps_output: str) -> Tuple[int, int]:
         job_processes_pid_nice = []
@@ -227,3 +280,4 @@ class ApacheHadoop(Scheduler):
         )
         output = self.master_node.send_command(cmd)
         return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
+

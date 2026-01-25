@@ -14,6 +14,9 @@ set -euo pipefail
 
 ROOT_DIR="/home/gjaimejuan/Metascheduler-CGroups"
 BENCHMARK_SCRIPT="${ROOT_DIR}/benchmarks/v1/run_benchmarks.sh"
+QUEUE_ID=1
+JOB_OPTIONS=
+export PYTHONPATH=..
 
 if [[ ! -x "${BENCHMARK_SCRIPT}" ]]; then
   echo "Benchmark script not found or not executable at ${BENCHMARK_SCRIPT}"
@@ -42,7 +45,7 @@ echo "  User:       ${SUBMIT_USER}"
 echo "  Job name:   ${JOB_NAME}"
 [[ -n "${JOB_OPTIONS}" ]] && echo "  Job options: ${JOB_OPTIONS}"
 
-CMD=(pipenv run python "${ROOT_DIR}/client/main.py"
+CMD=(pipenv --python ~/.local/share/mamba/envs/metascheduler/bin/python run python "${ROOT_DIR}/client/main.py"
      --ip "${API_IP}" --port "${API_PORT}"
      send job
      --name "${JOB_NAME}"
@@ -53,6 +56,8 @@ CMD=(pipenv run python "${ROOT_DIR}/client/main.py"
 if [[ -n "${JOB_OPTIONS}" ]]; then
   CMD+=(--options "${JOB_OPTIONS}")
 fi
+
+echo ${CMD}
 
 USER="${SUBMIT_USER}" "${CMD[@]}"
 
