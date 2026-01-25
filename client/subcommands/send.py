@@ -52,7 +52,18 @@ def job(
         str, typer.Option(help="Scheduler type: S (SGE), H (Hadoop).")
     ],
     options: Annotated[str, typer.Option(help="Job options.")] = "",
+    hadoop_quiet: Annotated[
+        bool, typer.Option(help="Reduce Hadoop client logging for this job.")
+    ] = False,
 ):
+    scheduler_code = scheduler_type.strip().upper()
+    if hadoop_quiet:
+        if scheduler_code == "H":
+            options = f"{options} --ms-hadoop-quiet".strip()
+        else:
+            print(
+                "[bold yellow]Warning:[/bold yellow] --hadoop-quiet ignored for non-Hadoop jobs."
+            )
     request_data = {
         "name": name,
         "queue": queue,
@@ -60,7 +71,7 @@ def job(
         "path": path,
         "options": options,
         "pwd": os.getcwd(),
-        "scheduler_type": scheduler_type,
+        "scheduler_type": scheduler_code,
     }
     response = HTTP_Client().post("/jobs", request_data)
     response_message = response.json()["message"]
@@ -96,6 +107,9 @@ def benchmarks(
     delay: Annotated[
         float, typer.Option(help="Delay between submissions in seconds.")
     ] = 1.0,
+    hadoop_quiet: Annotated[
+        bool, typer.Option(help="Reduce Hadoop client logging for benchmark jobs.")
+    ] = False,
 ):
     owner = os.getenv("USER")
     if not owner:
@@ -124,6 +138,8 @@ def benchmarks(
     for index, input_file in enumerate(hadoop_input_list, start=1):
         output_dir = f"{name_prefix}-out-{index}"
         options = f"{hadoop_class} {input_file} {output_dir}"
+        if hadoop_quiet:
+            options = f"{options} --ms-hadoop-quiet"
         jobs.append(
             BenchmarkJob(
                 name=f"{name_prefix}-hadoop-{index}",
