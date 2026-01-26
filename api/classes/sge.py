@@ -8,6 +8,9 @@ from api.interfaces.scheduler import Scheduler
 from api.routers.jobs import set_job_scheduler_job_id, update_job_status
 import xml.etree.ElementTree as ET
 
+SGE_ROOT = '/usr/local/sge/'
+QSTAT = SGE_ROOT + 'bin/lx-amd64/qstat'
+QSUB = SGE_ROOT + 'bin/lx-amd64/qsub'
 
 class SGE(Scheduler):
     """
@@ -22,124 +25,8 @@ class SGE(Scheduler):
         self.name = "SGE"
         self.cgroup_path = ""
 
-        # Detect SGE installation paths
-        self._detect_sge_paths()
-
-    def _detect_sge_paths(self):
-        """
-        Detect SGE_ROOT and binary paths dynamically.
-        """
-        # Try to get SGE_ROOT from environment variable first
-        sge_root_env = os.getenv("SGE_ROOT")
-
-        # Common SGE installation paths
-        common_paths = [
-            "/opt/sge",
-            "/opt/gridengine",
-            "/var/lib/gridengine",
-            "/usr/share/gridengine",
-            "/opt/uge",
-        ]
-
-        if sge_root_env:
-            common_paths.insert(0, sge_root_env)
-
-        # Try to find SGE_ROOT by checking for qstat binary
-        sge_root = None
-        for path in common_paths:
-            # Check if this looks like SGE_ROOT
-            test_cmd = f'test -d {path} && echo "exists"'
-            try:
-                result = self.master_node.send_command(test_cmd, critical=False)
-                if "exists" in result:
-                    sge_root = path
-                    break
-            except:
-                continue
-
-        # If still not found, try to find qstat in PATH
-        if not sge_root:
-            try:
-                which_result = self.master_node.send_command(
-                    "which qstat", critical=False
-                )
-                if which_result and "/bin/qstat" in which_result:
-                    # Extract SGE_ROOT from the path (e.g., /opt/sge/bin/lx-amd64/qstat -> /opt/sge)
-                    qstat_path = which_result.strip()
-                    sge_root = "/".join(qstat_path.split("/")[:-3])
-            except:
-                pass
-
-        # Fallback to default if nothing found
-        if not sge_root:
-            sge_root = "/opt/sge"
-
-        self.sge_root = sge_root
-
-        # Detect architecture
-        arch = self._detect_architecture()
-
-        # Set binary paths
-        self.qstat = f"{self.sge_root}/bin/{arch}/qstat"
-        self.qsub = f"{self.sge_root}/bin/{arch}/qsub"
-
-        # Verify binaries exist
-        self._verify_binaries()
-
-    def _detect_architecture(self) -> str:
-        """
-        Detect the SGE binary architecture directory.
-        """
-        # Try to detect from existing binaries
-        try:
-            result = self.master_node.send_command(
-                f"ls -d {self.sge_root}/bin/*/ 2>/dev/null | head -1", critical=False
-            )
-            if result:
-                # Extract architecture name from path like /opt/sge/bin/lx-amd64/
-                arch = result.strip().split("/")[-2]
-                if arch:
-                    return arch
-        except:
-            pass
-
-        # Common architectures
-        common_archs = ["lx-amd64", "lx-x86", "sol-amd64", "linux-x64"]
-
-        for arch in common_archs:
-            try:
-                result = self.master_node.send_command(
-                    f'test -d {self.sge_root}/bin/{arch} && echo "exists"',
-                    critical=False,
-                )
-                if "exists" in result:
-                    return arch
-            except:
-                continue
-
-        # Default fallback
-        return "lx-amd64"
-
-    def _verify_binaries(self):
-        """
-        Verify that qstat and qsub binaries exist and are executable.
-        """
-        for binary, name in [(self.qstat, "qstat"), (self.qsub, "qsub")]:
-            try:
-                result = self.master_node.send_command(
-                    f'test -x {binary} && echo "ok"', critical=False
-                )
-                if "ok" not in result:
-                    raise RuntimeError(
-                        f"SGE binary {name} not found or not executable at {binary}"
-                    )
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to verify SGE binary {name} at {binary}: {e}"
-                )
-
     def __str__(self) -> str:
-        return f"SGE Scheduler: {self.master_node.ip}:{self.master_node.port} (SGE_ROOT: {self.sge_root})"
+        return f"SGE Scheduler: {self.master_node.ip}:{self.master_node.port}"
 
     def update_job_list(self, metascheduler_queue: List[Job]):
         """
@@ -195,7 +82,7 @@ class SGE(Scheduler):
 
         """
         qstat_xml = self.master_node.send_command(
-            f"export SGE_ROOT={self.sge_root} && {self.qstat} -xml"
+            f"export SGE_ROOT={SGE_ROOT} && {QSTAT} -xml"
         )
         return qstat_xml
 
@@ -231,7 +118,7 @@ class SGE(Scheduler):
         and return the job id assigned by the scheduler.
         """
         message = self.master_node.send_command(
-            f"sudo -u {job.owner} sh -c 'export SGE_ROOT={self.sge_root} && cd {job.pwd} && {self.qsub} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
+            f"sudo -u {job.owner} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} && {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
         )
         assigned_job_id = self._parse_qsub(message)
         return assigned_job_id
