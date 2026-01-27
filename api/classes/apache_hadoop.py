@@ -9,7 +9,7 @@ from api.interfaces.node import Node
 import re
 import os
 
-HADOOP_HOME = '/usr/hdp/2.6.5.0-292/hadoop'
+HADOOP_HOME = "/usr/hdp/2.6.5.0-292/hadoop"
 # JAVA_HOME = '/usr/lib/jvm/jre/'
 JAVA_HOME = "/usr/lib/jvm/java-8-openjdk"
 
@@ -18,18 +18,18 @@ JAVA_HOME = "/usr/lib/jvm/java-8-openjdk"
 
 
 class ApacheHadoop(Scheduler):
-    '''
+    """
     Apache Hadoop Scheduler
 
-    '''
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.name = 'Apache Hadoop'
+        self.name = "Apache Hadoop"
         self.cgroup_path = ""
 
     def __str__(self) -> str:
-        return f'Apache Hadoop Scheduler: {self.master_node.ip}:{self.master_node.port}'
+        return f"Apache Hadoop Scheduler: {self.master_node.ip}:{self.master_node.port}"
 
     def _init_hdfs_user_dir(self, user: str):
         """
@@ -41,13 +41,13 @@ class ApacheHadoop(Scheduler):
         self.master_node.send_command(f"{check_cmd} || {mkdir_cmd}")
 
     def update_job_list(self, metascheduler_queue: List[Job]):
-        '''
+        """
         Update the job list.
         Also update the job status in the database.
 
         As Apache Hadoop does not have a scheduler, this method is not implemented.
 
-        '''
+        """
         if not self.running_jobs:
             return
         response = self._call_yarn_application()
@@ -58,54 +58,61 @@ class ApacheHadoop(Scheduler):
             self.running_jobs = []
 
     def get_job_list(self) -> List[Job]:
-        '''
+        """
         Get the list of jobs from the Apache Hadoop scheduler.
 
         As Apache Hadoop does not have a scheduler, this method will return the actual running job, if any.
 
-        '''
+        """
         return self.running_jobs
 
     def queue_job(self, job: Job):
-        '''
+        """
         Queue a job.
 
         As Apache Hadoop does not have a scheduler, this method will run the job immediately.
 
-        '''
+        """
         if self.running_jobs:
-            print('There is already a job running. Only one job can run at a time.')
+            print("There is already a job running. Only one job can run at a time.")
             return
         try:
             self._call_yarn_jar(job)
             self.running_jobs.append(job)
             update_job_status(job.id_, job.owner, JobStatus.RUNNING)
         except Exception as e:
-            print(f'Error: {e}')
+            print(f"Error: {e}")
             update_job_status(job.id_, job.owner, JobStatus.ERROR)
 
     def _call_yarn_jar(self, job: Job):
-        '''
+        """
         Prepare the HDFS environment and run the Hadoop job.
-        '''
+        """
         hdfs_user_dir = f"/user/{job.owner}"
         parts, meta = self._split_hadoop_options(job.options)
         if len(parts) < 3:
-            raise ValueError("job.options ha de tenir almenys 3 parts: classe, input_file i output_dir")
+            raise ValueError(
+                "job.options ha de tenir almenys 3 parts: classe, input_file i output_dir"
+            )
 
         main_class = parts[0]
         input_file = parts[1]
         output_dir = parts[2]
 
-        ssh_user = os.getenv('SSH_USER')
+        def _is_hdfs_path(path: str) -> bool:
+            return (
+                path.startswith("hdfs://")
+                or path.startswith("viewfs://")
+                or path.startswith("hdfs:")
+                or path.startswith("viewfs:")
+                or path.startswith("/user/")
+            )
+
+        ssh_user = os.getenv("SSH_USER")
         ssh_home = f"/home/{ssh_user}" if ssh_user else str(job.pwd)
         input_path = f"{ssh_home}/{input_file}"
-        check_file_cmd = f"test -f {input_path}"
-
-        try:
-            self.master_node.send_command(check_file_cmd)
-        except Exception:
-            raise FileNotFoundError(f"[ERROR] File '{input_file}' doesn't exist in {ssh_home}")
+        is_hdfs_input = _is_hdfs_path(input_file)
+        is_hdfs_output = _is_hdfs_path(output_dir)
 
         self._init_hdfs_user_dir(job.owner)
 
@@ -113,17 +120,36 @@ class ApacheHadoop(Scheduler):
             f"export JAVA_HOME={JAVA_HOME}",
         ]
         if meta.get("quiet"):
-            env_cmds.extend([
-                "export HADOOP_ROOT_LOGGER=ERROR,console",
-                "export YARN_ROOT_LOGGER=ERROR,console",
-                "export MAPREDUCE_ROOT_LOGGER=ERROR,console",
-            ])
+            env_cmds.extend(
+                [
+                    "export HADOOP_ROOT_LOGGER=ERROR,console",
+                    "export YARN_ROOT_LOGGER=ERROR,console",
+                    "export MAPREDUCE_ROOT_LOGGER=ERROR,console",
+                ]
+            )
 
-        cmds = env_cmds + [
-            f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_path} {hdfs_user_dir}/",
-            f"{HADOOP_HOME}/bin/hdfs dfs -rm -r -f {hdfs_user_dir}/{output_dir}",
-            f"cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {main_class} {hdfs_user_dir}/{input_file} {hdfs_user_dir}/{output_dir}"
-        ]
+        hdfs_input = input_file if is_hdfs_input else f"{hdfs_user_dir}/{input_file}"
+        hdfs_output = output_dir if is_hdfs_output else f"{hdfs_user_dir}/{output_dir}"
+
+        cmds = env_cmds.copy()
+        if not is_hdfs_input:
+            check_file_cmd = f"test -f {input_path}"
+            try:
+                self.master_node.send_command(check_file_cmd)
+            except Exception:
+                raise FileNotFoundError(
+                    f"[ERROR] File '{input_file}' doesn't exist in {ssh_home}"
+                )
+            cmds.append(
+                f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_path} {hdfs_user_dir}/"
+            )
+
+        cmds.extend(
+            [
+                f"{HADOOP_HOME}/bin/hdfs dfs -rm -r -f {hdfs_output}",
+                f"cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {main_class} {hdfs_input} {hdfs_output}",
+            ]
+        )
 
         full_command = f"sudo -u {job.owner} sh -c '{' && '.join(cmds)}'"
         self.master_node.send_command_async(full_command)
@@ -140,21 +166,21 @@ class ApacheHadoop(Scheduler):
         return remaining, meta
 
     def _call_yarn_application(self) -> str:
-        '''
+        """
         Call the yarn application -list command to get the list of running jobs.
 
-        '''
+        """
         response = self.master_node.send_command(
-            f'export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list'
+            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list"
         )
         print(response)
         return response
 
     def _is_any_job_running(self, response: str) -> bool:
-        '''
+        """
         Check if any job is running, parsing the response from the yarn application -list command.
 
-        '''
+        """
         match = re.search(r"Total number of applications.*:\s*(\d+)", response)
         if match:
             return int(match.group(1)) > 0
@@ -162,30 +188,33 @@ class ApacheHadoop(Scheduler):
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
         for node in self.nodes:
-            ps_output = node.send_command(f'ps -eo pid,comm,nice')
+            ps_output = node.send_command(f"ps -eo pid,comm,nice")
             print(ps_output)
             job_processes_pid_nice: Tuple[int, int] = self._get_job_processes_from_ps(
-                ps_output)
+                ps_output
+            )
             for pid, actual_nice in job_processes_pid_nice:
                 if actual_nice == new_nice:
                     continue
-                node.send_command(f'sudo renice {new_nice} {pid}')
+                node.send_command(f"sudo renice {new_nice} {pid}")
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int):
-        '''
+        """
         Adjust the nice value of a running job.
 
-        '''
+        """
         for node in self.nodes:
-            node.send_command(f'renice {new_nice} {job_pid}')
+            node.send_command(f"renice {new_nice} {job_pid}")
 
-    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
-        '''
+    def get_all_jobs_info(
+        self,
+    ) -> List[Tuple[int, int, float, float, str, float, float]]:
+        """
         Get the information of all running jobs
 
-        '''
+        """
         node = self.master_node
-        ps_output = node.send_command(f'ps -eo pid,comm,nice,%cpu,%mem,user')
+        ps_output = node.send_command(f"ps -eo pid,comm,nice,%cpu,%mem,user")
         job_info = self._get_job_info_from_ps(ps_output)
         if not job_info:
             return job_info
@@ -203,27 +232,38 @@ class ApacheHadoop(Scheduler):
             for pid, nice, cpu, mem, user in job_info
         ]
 
-    def _get_job_info_from_ps(self, ps_output: str) -> List[Tuple[int, int, float, float, str]]:
-        '''
+    def _get_job_info_from_ps(
+        self, ps_output: str
+    ) -> List[Tuple[int, int, float, float, str]]:
+        """
         Get the list of processes of the running jobs.
 
         Search for the hadoop processes and get the PID of the process and the nice value.
 
-        '''
+        """
         job_processes_pid_nice_cpu_mem = []
-        lines = ps_output.split('\n')[1:]
+        lines = ps_output.split("\n")[1:]
         for line in lines:
             if not line:
                 continue
             parts = line.split()
             if len(parts) < 6:
                 continue
-            if 'java' in parts[1]:
+            if "java" in parts[1]:
                 job_processes_pid_nice_cpu_mem.append(
-                    (int(parts[0]), int(parts[2]), float(parts[3]), float(parts[4]), parts[5]))
+                    (
+                        int(parts[0]),
+                        int(parts[2]),
+                        float(parts[3]),
+                        float(parts[4]),
+                        parts[5],
+                    )
+                )
         return job_processes_pid_nice_cpu_mem
 
-    def _get_io_by_pid(self, node: Node, pids: List[int]) -> dict[int, tuple[float, float]]:
+    def _get_io_by_pid(
+        self, node: Node, pids: List[int]
+    ) -> dict[int, tuple[float, float]]:
         if not pids:
             return {}
         pid_list = " ".join(str(pid) for pid in pids)
@@ -235,7 +275,7 @@ class ApacheHadoop(Scheduler):
             "write_bytes=$(sudo -n awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
             "awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
             "read_bytes=${read_bytes:-0}; write_bytes=${write_bytes:-0}; "
-            "echo \"$pid $read_bytes $write_bytes\"; "
+            'echo "$pid $read_bytes $write_bytes"; '
             "done'"
         )
         output = node.send_command(cmd, critical=False)
@@ -252,52 +292,56 @@ class ApacheHadoop(Scheduler):
 
     def _get_job_processes_from_ps(self, ps_output: str) -> Tuple[int, int]:
         job_processes_pid_nice = []
-        lines = ps_output.split('\n')
+        lines = ps_output.split("\n")
         for line in lines:
-            if 'java' in line:
+            if "java" in line:
                 job_processes_pid_nice.append(
-                    (int(line.split()[0]), int(line.split()[2])))
+                    (int(line.split()[0]), int(line.split()[2]))
+                )
         return job_processes_pid_nice
 
     def _reset_java_process_nice(self):
         for node in self.nodes:
-            ps_output = node.send_command(f'ps -eo pid,comm,nice')
+            ps_output = node.send_command(f"ps -eo pid,comm,nice")
             job_processes_pid_nice: Tuple[int, int] = self._get_job_processes_from_ps(
-                ps_output)
+                ps_output
+            )
             for pid, actual_nice in job_processes_pid_nice:
                 if actual_nice == 0:
                     continue
-                node.send_command(f'renice 0 {pid}')
+                node.send_command(f"renice 0 {pid}")
 
     def get_hadoop_process_tree(self) -> list[str]:
         """
-            Retrieves the full process tree associated with Hadoop components on the master node.
+        Retrieves the full process tree associated with Hadoop components on the master node.
 
-            This function executes a Bash script that:
-            - Identifies key Hadoop processes (e.g., NameNode, DataNode, ResourceManager) using `jps`.
-            - Extracts all system processes with their PID and PPID.
-            - Recursively builds the tree of child processes starting from the Hadoop roots.
-            - Returns a sorted, unique list of all related PIDs.
+        This function executes a Bash script that:
+        - Identifies key Hadoop processes (e.g., NameNode, DataNode, ResourceManager) using `jps`.
+        - Extracts all system processes with their PID and PPID.
+        - Recursively builds the tree of child processes starting from the Hadoop roots.
+        - Returns a sorted, unique list of all related PIDs.
 
-            Useful for applying resource control policies via cgroups to the entire Hadoop workload,
-            ensuring consistent isolation and monitoring.
+        Useful for applying resource control policies via cgroups to the entire Hadoop workload,
+        ensuring consistent isolation and monitoring.
         """
         cmd = (
             "bash -c '"
-            "jps | grep -E \"NameNode|DataNode|ResourceManager|NodeManager|FsShell|RunJar|MRAppMaster|ApplicationCLI|YarnChild|SecondaryNameNode\" | awk \"{print \\$1}\" > /tmp/hadoop_roots.txt && "
+            'jps | grep -E "NameNode|DataNode|ResourceManager|NodeManager|FsShell|RunJar|MRAppMaster|ApplicationCLI|YarnChild|SecondaryNameNode" | awk "{print \\$1}" > /tmp/hadoop_roots.txt && '
             "ps -eo pid,ppid > /tmp/all_procs.txt && "
             "function get_children() { "
             "  local pid=$1; "
             "  echo $pid; "
-            "  for child in $(awk -v p=$pid \"$2==p {print \\$1}\" /tmp/all_procs.txt); do "
+            '  for child in $(awk -v p=$pid "$2==p {print \\$1}" /tmp/all_procs.txt); do '
             "    get_children $child; "
             "  done; "
             "} ; "
-            "ALL=\"\"; "
+            'ALL=""; '
             "for pid in $(cat /tmp/hadoop_roots.txt); do "
-            "  ALL=\"$ALL $(get_children $pid)\"; "
+            '  ALL="$ALL $(get_children $pid)"; '
             "done; "
-            "echo $ALL | tr \" \" \"\\n\" | sort -n | uniq'"
+            'echo $ALL | tr " " "\\n" | sort -n | uniq\''
         )
         output = self.master_node.send_command(cmd)
-        return [pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()]
+        return [
+            pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()
+        ]
