@@ -21,5 +21,5 @@ export SSH_BANNER_TIMEOUT=60
 export SSH_TIMEOUT=30 
 export SSH_AUTH_TIMEOUT=30 
 echo "Starting application with pipenv..."
-pipenv run python main.py ./config/test_config.json --host 0.0.0.0 --port 8000 --database-file ./db/db.sqlite3 --ssh-key-file /home/gjaimejuan/.ssh/id_rsa --ssh-user gjaimejuan
+pipenv run python main.py ./config/config_best_effort.json --host 0.0.0.0 --port 8000 --database-file ./db/db.sqlite3 --ssh-key-file /home/gjaimejuan/.ssh/id_rsa --ssh-user gjaimejuan
 

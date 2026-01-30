@@ -1,5 +1,6 @@
 import os
 import time
+import getpass
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
@@ -117,8 +118,10 @@ class SGE(Scheduler):
         Call the qsub command to queue the job
         and return the job id assigned by the scheduler.
         """
+        current_user = getpass.getuser()
+        target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
         message = self.master_node.send_command(
-            f"sudo -u {job.owner} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} && {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
+            f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} && {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
         )
         assigned_job_id = self._parse_qsub(message)
         return assigned_job_id
@@ -161,16 +164,20 @@ class SGE(Scheduler):
         Adjust the nice value of all running jobs' processes.
 
         """
+
+        current_user = getpass.getuser()
         for node in self.nodes:
-            ps_output = node.send_command(f"ps -eo pid,comm,nice,ppid,user")
+            ps_output = node.send_command("ps -eo pid,comm,nice,ppid,user")
             job_processes_pid_nice: Tuple[int, int, str] = (
                 self._get_job_processes_from_ps(ps_output)
             )
             for pid, actual_nice, user in job_processes_pid_nice:
                 if actual_nice == new_nice:
                     continue
+
+                target_user = f"sudo -u {user}" if current_user != user else ""
                 node.send_command(
-                    f"sudo -u {user} sh -c 'renice {new_nice} {pid}'", critical=False
+                    f"{target_user} sh -c 'renice {new_nice} {pid}'", critical=False
                 )
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int, user: str):
@@ -178,9 +185,13 @@ class SGE(Scheduler):
         Adjust the nice value of a running job.
 
         """
+
+        current_user = getpass.getuser()
+        target_user = f"sudo -u {user}" if current_user != user else ""
         for node in self.nodes:
+
             node.send_command(
-                f"sudo -u {user} sh -c 'renice {new_nice} {job_pid}'", critical=False
+                f"{target_user} sh -c 'renice {new_nice} {job_pid}'", critical=False
             )
 
     def _get_job_info_from_ps(

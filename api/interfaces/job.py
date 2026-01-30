@@ -15,7 +15,7 @@ class Job:
     def __init__(self, id_: int = None, queue: int = -1, name: str = None,
                  created_at: datetime = None, owner: str = None,
                  status: JobStatus = JobStatus.TO_BE_QUEUED, path: Path = None, scheduler_type: str = '',
-                 options: str = '', scheduler_job_id: int = None, pwd: Path = None):
+                 options: str = '', scheduler_job_id: int = None, pwd: Path = None, quiet: bool = False):
         self.id_ = id_
         self.queue = queue
         self.name = name
@@ -31,6 +31,14 @@ class Job:
         # self.pwd = "/home/metascheduler"
         self.pwd = str(pwd) if pwd else self._default_pwd()
         self.scheduler_type = self._validate_scheduler_code(scheduler_type)
+        self.quiet = quiet
+
+    def __str__(self):
+        return f"Job(id={self.id_}, queue={self.queue}, name='{self.name}', " \
+               f"created_at='{self.created_at}', owner='{self.owner}', " \
+               f"status='{self.status.name}', path='{self.path}', " \
+               f"scheduler_type='{self.scheduler_type}', options='{self.options}', " \
+               f"scheduler_job_id={self.scheduler_job_id}, pwd='{self.pwd}')"
 
     @staticmethod
     def _default_pwd() -> str:

@@ -85,12 +85,18 @@ class Node:
         def run_command():
             try:
                 ssh_cmd = self._build_ssh_command(command)
-                subprocess.run(
+                result = subprocess.run(
                     ssh_cmd,
                     capture_output=True,
                     timeout=float(os.getenv('SSH_TIMEOUT', '30'))
                 )
+                print("Command:", command)
+                print("Ssh Command:", ssh_cmd)
+                print("Return code:", result.returncode)
+                print("STDOUT:", result.stdout)
+                print("STDERR:", result.stderr)
             except Exception as e:
+                print(f"Error sending command: {e}")
                 raise e
 
         thread = threading.Thread(target=run_command)
