@@ -1,13 +1,11 @@
-from time import sleep
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
 from api.interfaces.node import Node
 from api.interfaces.scheduler import Scheduler
-from api.routers.jobs import update_job_status, set_job_scheduler_job_id
-from api.interfaces.node import Node
+from api.routers.jobs import update_job_status
 import re
-import os
+import getpass
 
 HADOOP_HOME = "/usr/hdp/2.6.5.0-292/hadoop"
 # JAVA_HOME = '/usr/lib/jvm/jre/'
@@ -74,7 +72,7 @@ class ApacheHadoop(Scheduler):
 
         """
         if self.running_jobs:
-            print("There is already a job running. Only one job can run at a time.")
+            print(f"There is already a job running. Only one job can run at a time. {self.running_jobs}")
             return
         try:
             self._call_yarn_jar(job)
@@ -88,82 +86,17 @@ class ApacheHadoop(Scheduler):
         """
         Prepare the HDFS environment and run the Hadoop job.
         """
-        hdfs_user_dir = f"/user/{job.owner}"
-        parts, meta = self._split_hadoop_options(job.options)
-        if len(parts) < 3:
-            raise ValueError(
-                "job.options ha de tenir almenys 3 parts: classe, input_file i output_dir"
-            )
+        quiet_mode = "export HADOOP_ROOT_LOGGER=ERROR,console && export YARN_ROOT_LOGGER=ERROR,console && export MAPREDUCE_ROOT_LOGGER=ERROR,console" if job.quiet else ""
+            
 
-        main_class = parts[0]
-        input_file = parts[1]
-        output_dir = parts[2]
+        current_user = getpass.getuser()
+        target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
 
-        def _is_hdfs_path(path: str) -> bool:
-            return (
-                path.startswith("hdfs://")
-                or path.startswith("viewfs://")
-                or path.startswith("hdfs:")
-                or path.startswith("viewfs:")
-                or path.startswith("/user/")
-            )
+        print(f"Targeting user: {target_user} current user is: {current_user}")
 
-        ssh_user = os.getenv("SSH_USER")
-        ssh_home = f"/home/{ssh_user}" if ssh_user else str(job.pwd)
-        input_path = f"{ssh_home}/{input_file}"
-        is_hdfs_input = _is_hdfs_path(input_file)
-        is_hdfs_output = _is_hdfs_path(output_dir)
-
-        self._init_hdfs_user_dir(job.owner)
-
-        env_cmds = [
-            f"export JAVA_HOME={JAVA_HOME}",
-        ]
-        if meta.get("quiet"):
-            env_cmds.extend(
-                [
-                    "export HADOOP_ROOT_LOGGER=ERROR,console",
-                    "export YARN_ROOT_LOGGER=ERROR,console",
-                    "export MAPREDUCE_ROOT_LOGGER=ERROR,console",
-                ]
-            )
-
-        hdfs_input = input_file if is_hdfs_input else f"{hdfs_user_dir}/{input_file}"
-        hdfs_output = output_dir if is_hdfs_output else f"{hdfs_user_dir}/{output_dir}"
-
-        cmds = env_cmds.copy()
-        if not is_hdfs_input:
-            check_file_cmd = f"test -f {input_path}"
-            try:
-                self.master_node.send_command(check_file_cmd)
-            except Exception:
-                raise FileNotFoundError(
-                    f"[ERROR] File '{input_file}' doesn't exist in {ssh_home}"
-                )
-            cmds.append(
-                f"{HADOOP_HOME}/bin/hdfs dfs -put -f {input_path} {hdfs_user_dir}/"
-            )
-
-        cmds.extend(
-            [
-                f"{HADOOP_HOME}/bin/hdfs dfs -rm -r -f {hdfs_output}",
-                f"cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {main_class} {hdfs_input} {hdfs_output}",
-            ]
+        self.master_node.send_command_async(
+            f'{target_user} sh -c \'export JAVA_HOME={JAVA_HOME} {quiet_mode} && cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {job.options}\''
         )
-
-        full_command = f"sudo -u {job.owner} sh -c '{' && '.join(cmds)}'"
-        self.master_node.send_command_async(full_command)
-
-    def _split_hadoop_options(self, options: str) -> Tuple[List[str], dict]:
-        tokens = options.split()
-        meta = {"quiet": False}
-        remaining: List[str] = []
-        for token in tokens:
-            if token == "--ms-hadoop-quiet":
-                meta["quiet"] = True
-                continue
-            remaining.append(token)
-        return remaining, meta
 
     def _call_yarn_application(self) -> str:
         """
