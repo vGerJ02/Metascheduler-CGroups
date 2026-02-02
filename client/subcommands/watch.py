@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+from collections import defaultdict, deque
 from typing_extensions import Annotated
 import typer
 from rich import print
@@ -124,15 +125,70 @@ def _build_nodes_metrics_table(metrics_raw):
     return table
 
 
+def _sparkline(values, width: int, max_value: float) -> str:
+    if not values:
+        return ""
+    levels = " .:-=+*#%@"
+    trimmed = list(values)[-width:]
+    chars = []
+    for value in trimmed:
+        if value is None:
+            chars.append(" ")
+            continue
+        scaled = max(0.0, min(float(value), max_value)) / max_value if max_value > 0 else 0.0
+        idx = int(round(scaled * (len(levels) - 1)))
+        chars.append(levels[idx])
+    return "".join(chars)
+
+
 @app.command("nodes-metrics", help="Watch live metrics for all nodes.")
-def nodes_metrics():
+def nodes_metrics(
+    history: Annotated[int, typer.Option(help="Number of samples to keep for trends.", min=5, max=120)] = 30,
+    max_cpu: Annotated[int, typer.Option(help="Max CPU percent for scaling.", min=100)] = 200,
+):
     console.log("Watching node metrics... (Press Ctrl+C to stop)")
     updates_remaining = updates_number
+    cpu_history = defaultdict(lambda: deque(maxlen=history))
+    ram_history = defaultdict(lambda: deque(maxlen=history))
     with Live(console=console, refresh_per_second=4) as live:
         while updates_remaining > 0:
             response = HTTP_Client().get('/cluster/nodes/metrics')
             metrics_raw = response.json()
-            table = _build_nodes_metrics_table(metrics_raw)
+            table = Table(title="Node Metrics", show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="dim")
+            table.add_column("IP", style="dim")
+            table.add_column("Alive", style="dim")
+            table.add_column("CPU (%)", style="dim")
+            table.add_column("RAM (%)", style="dim")
+            table.add_column("CPU trend", style="dim")
+            table.add_column("RAM trend", style="dim")
+            table.add_column("Disk (%)", style="dim")
+            table.add_column("Load1", style="dim")
+            table.add_column("Error", style="dim")
+
+            for metric in metrics_raw:
+                node_id = metric.get("id")
+                cpu = metric.get("cpu_percent")
+                ram = metric.get("ram_percent")
+                disk = metric.get("disk_percent")
+                load1 = metric.get("load1")
+                error = metric.get("error") or ""
+
+                cpu_history[node_id].append(cpu if isinstance(cpu, (int, float)) else None)
+                ram_history[node_id].append(ram if isinstance(ram, (int, float)) else None)
+
+                table.add_row(
+                    str(node_id),
+                    str(metric.get("ip")),
+                    str(metric.get("is_alive")),
+                    f"{cpu:.2f}" if isinstance(cpu, (int, float)) else "-",
+                    f"{ram:.2f}" if isinstance(ram, (int, float)) else "-",
+                    _sparkline(cpu_history[node_id], history, float(max_cpu)),
+                    _sparkline(ram_history[node_id], history, 100.0),
+                    f"{disk:.2f}" if isinstance(disk, (int, float)) else "-",
+                    f"{load1:.2f}" if isinstance(load1, (int, float)) else "-",
+                    error,
+                )
             live.update(table)
             updates_remaining -= 1
             time.sleep(update_interval)
