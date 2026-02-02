@@ -76,7 +76,7 @@ class Node:
                 raise RuntimeError(error_message) from e
             return error_message
 
-    def send_command_async(self, command: str) -> None:
+    def send_command_async(self, command: str, on_output=None, on_complete=None) -> None:
         '''
         Send a command to the node asynchronously.
         Args:
@@ -85,18 +85,63 @@ class Node:
         def run_command():
             try:
                 ssh_cmd = self._build_ssh_command(command)
-                result = subprocess.run(
+                process = subprocess.Popen(
                     ssh_cmd,
-                    capture_output=True,
-                    timeout=float(os.getenv('SSH_TIMEOUT', '30'))
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1
                 )
+                stdout_lines = []
+                stderr_lines = []
+
+                def read_stream(stream, is_stderr: bool):
+                    for line in iter(stream.readline, ''):
+                        if is_stderr:
+                            stderr_lines.append(line)
+                        else:
+                            stdout_lines.append(line)
+                        if on_output:
+                            try:
+                                on_output(line, is_stderr)
+                            except Exception as callback_exc:
+                                print(f"Error in on_output callback: {callback_exc}")
+                    stream.close()
+
+                stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, False))
+                stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, True))
+                stdout_thread.start()
+                stderr_thread.start()
+                try:
+                    process.wait(timeout=float(os.getenv('SSH_TIMEOUT', '30')))
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    raise
+                finally:
+                    stdout_thread.join()
+                    stderr_thread.join()
+
+                stdout = ''.join(stdout_lines)
+                stderr = ''.join(stderr_lines)
+
                 print("Command:", command)
                 print("Ssh Command:", ssh_cmd)
-                print("Return code:", result.returncode)
-                print("STDOUT:", result.stdout)
-                print("STDERR:", result.stderr)
+                print("Return code:", process.returncode)
+                print("STDOUT:", stdout)
+                print("STDERR:", stderr)
+
+                if on_complete:
+                    try:
+                        on_complete(process.returncode, stdout, stderr)
+                    except Exception as callback_exc:
+                        print(f"Error in on_complete callback: {callback_exc}")
             except Exception as e:
                 print(f"Error sending command: {e}")
+                if on_complete:
+                    try:
+                        on_complete(1, "", str(e))
+                    except Exception as callback_exc:
+                        print(f"Error in on_complete callback: {callback_exc}")
                 raise e
 
         thread = threading.Thread(target=run_command)

@@ -1,15 +1,17 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from datetime import datetime, timedelta
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
 from api.interfaces.node import Node
 from api.interfaces.scheduler import Scheduler
-from api.routers.jobs import update_job_status
+from api.routers.jobs import update_job_status, set_job_scheduler_job_ref
 import re
 import getpass
 
 HADOOP_HOME = "/usr/hdp/2.6.5.0-292/hadoop"
 # JAVA_HOME = '/usr/lib/jvm/jre/'
 JAVA_HOME = "/usr/lib/jvm/java-8-openjdk"
+YARN_APP_ID_GRACE_SECONDS = 30
 
 
 # export JAVA_HOME=/usr/lib/jvm/jre/ && /opt/hadoop/bin/yarn jar /opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar pi 2 4
@@ -48,12 +50,34 @@ class ApacheHadoop(Scheduler):
         """
         if not self.running_jobs:
             return
-        response = self._call_yarn_application()
-        if not self._is_any_job_running(response):
-            for job in self.running_jobs:
+        still_running: List[Job] = []
+        for job in self.running_jobs:
+            if job.scheduler_job_ref:
+                state, final_state = self._get_application_status(job.scheduler_job_ref)
+                if state in {"RUNNING", "ACCEPTED", "SUBMITTED"}:
+                    still_running.append(job)
+                    continue
+                if final_state in {"SUCCEEDED"} or state in {"FINISHED"}:
+                    update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                elif final_state in {"FAILED", "KILLED"} or state in {"FAILED", "KILLED"}:
+                    update_job_status(job.id_, job.owner, JobStatus.ERROR)
+                else:
+                    update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                self._reset_java_process_nice()
+                continue
+
+            queued_at = getattr(job, "queued_at", None)
+            if queued_at and datetime.utcnow() - queued_at < timedelta(seconds=YARN_APP_ID_GRACE_SECONDS):
+                still_running.append(job)
+                continue
+
+            response = self._call_yarn_application()
+            if self._is_any_job_running(response):
+                still_running.append(job)
+            else:
                 update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
                 self._reset_java_process_nice()
-            self.running_jobs = []
+        self.running_jobs = still_running
 
     def get_job_list(self) -> List[Job]:
         """
@@ -76,6 +100,7 @@ class ApacheHadoop(Scheduler):
             return
         try:
             self._call_yarn_jar(job)
+            job.queued_at = datetime.utcnow()
             self.running_jobs.append(job)
             update_job_status(job.id_, job.owner, JobStatus.RUNNING)
         except Exception as e:
@@ -86,16 +111,38 @@ class ApacheHadoop(Scheduler):
         """
         Prepare the HDFS environment and run the Hadoop job.
         """
-        quiet_mode = "export HADOOP_ROOT_LOGGER=ERROR,console && export YARN_ROOT_LOGGER=ERROR,console && export MAPREDUCE_ROOT_LOGGER=ERROR,console" if job.quiet else ""
-            
+        quiet_mode = (
+            "export HADOOP_ROOT_LOGGER=ERROR,console && "
+            "export YARN_ROOT_LOGGER=ERROR,console && "
+            "export MAPREDUCE_ROOT_LOGGER=ERROR,console"
+            if job.quiet
+            else ""
+        )
 
         current_user = getpass.getuser()
         target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
 
         print(f"Targeting user: {target_user} current user is: {current_user}")
 
+        self._init_hdfs_user_dir(job.owner)
+
+        env_exports = [f"export JAVA_HOME={JAVA_HOME}"]
+        if quiet_mode:
+            env_exports.append(quiet_mode)
+        env_cmd = " && ".join(env_exports)
+
+        def on_output(line: str, is_stderr: bool):
+            app_id = self._extract_application_id(line)
+            if app_id and not job.scheduler_job_ref:
+                job.scheduler_job_ref = app_id
+                try:
+                    set_job_scheduler_job_ref(job.id_, job.owner, app_id)
+                except Exception as exc:
+                    print(f"Error storing scheduler job ref: {exc}")
+
         self.master_node.send_command_async(
-            f'{target_user} sh -c \'export JAVA_HOME={JAVA_HOME} {quiet_mode} && cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {job.options}\''
+            f"{target_user} sh -c '{env_cmd} && cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {job.options}'",
+            on_output=on_output
         )
 
     def _call_yarn_application(self) -> str:
@@ -104,10 +151,30 @@ class ApacheHadoop(Scheduler):
 
         """
         response = self.master_node.send_command(
-            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list"
+            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list -appStates SUBMITTED,ACCEPTED,RUNNING"
         )
         print(response)
         return response
+
+    def _extract_application_id(self, text: str) -> Optional[str]:
+        match = re.search(r"(application_\d+_\d+)", text)
+        if match:
+            return match.group(1)
+        return None
+
+    def _get_application_status(self, application_id: str) -> Tuple[Optional[str], Optional[str]]:
+        try:
+            response = self.master_node.send_command(
+                f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -status {application_id}"
+            )
+        except Exception as exc:
+            response = str(exc)
+
+        state_match = re.search(r"State\\s*:\\s*(\\w+)", response)
+        final_match = re.search(r"Final-State\\s*:\\s*(\\w+)", response)
+        state = state_match.group(1) if state_match else None
+        final_state = final_match.group(1) if final_match else None
+        return state, final_state
 
     def _is_any_job_running(self, response: str) -> bool:
         """
@@ -146,24 +213,28 @@ class ApacheHadoop(Scheduler):
         Get the information of all running jobs
 
         """
-        node = self.master_node
-        ps_output = node.send_command(f"ps -eo pid,comm,nice,%cpu,%mem,user")
-        job_info = self._get_job_info_from_ps(ps_output)
-        if not job_info:
-            return job_info
-        io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
-        return [
-            (
-                pid,
-                nice,
-                cpu,
-                mem,
-                user,
-                io_by_pid.get(pid, (0.0, 0.0))[0],
-                io_by_pid.get(pid, (0.0, 0.0))[1],
+        all_jobs_info: List[Tuple[int, int, float, float, str, float, float]] = []
+        for node in self.nodes:
+            ps_output = node.send_command(f"ps -eo pid,comm,nice,%cpu,%mem,user")
+            job_info = self._get_job_info_from_ps(ps_output)
+            if not job_info:
+                continue
+            io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
+            all_jobs_info.extend(
+                [
+                    (
+                        pid,
+                        nice,
+                        cpu,
+                        mem,
+                        user,
+                        io_by_pid.get(pid, (0.0, 0.0))[0],
+                        io_by_pid.get(pid, (0.0, 0.0))[1],
+                    )
+                    for pid, nice, cpu, mem, user in job_info
+                ]
             )
-            for pid, nice, cpu, mem, user in job_info
-        ]
+        return all_jobs_info
 
     def _get_job_info_from_ps(
         self, ps_output: str

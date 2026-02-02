@@ -93,9 +93,11 @@ class DatabaseHelper(metaclass=Singleton):
             options TEXT NOT NULL,
             scheduler_job_id INTEGER,
             pwd TEXT,
-            scheduler_type TEXT NOT NULL, 
+            scheduler_type TEXT NOT NULL,
+            scheduler_job_ref TEXT,
             FOREIGN KEY(queue_id) REFERENCES queues(id))''')
         self._con.commit()
+        self._ensure_jobs_columns()
 
     def _create_job_metrics_table(self) -> None:
         '''Creates the job metrics table in the database.'''
@@ -111,6 +113,16 @@ class DatabaseHelper(metaclass=Singleton):
             FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE)''')
         self._con.commit()
         self._ensure_job_metrics_columns()
+
+    def _ensure_jobs_columns(self) -> None:
+        '''Ensure jobs has columns needed for newer scheduler fields.'''
+        self._cur.execute('PRAGMA table_info(jobs)')
+        columns = {row[1] for row in self._cur.fetchall()}
+        if 'scheduler_job_ref' not in columns:
+            self._cur.execute(
+                'ALTER TABLE jobs ADD COLUMN scheduler_job_ref TEXT'
+            )
+        self._con.commit()
 
     def _ensure_job_metrics_columns(self) -> None:
         '''Ensure job_metrics has columns needed for newer metrics.'''
@@ -152,9 +164,9 @@ class DatabaseHelper(metaclass=Singleton):
         try:
             self._refresh_connection()
             self._cur.execute(
-                'INSERT INTO jobs (queue_id, name, created_at, owner, status, path, options, scheduler_job_id, pwd, scheduler_type) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)',
+                'INSERT INTO jobs (queue_id, name, created_at, owner, status, path, options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
                 (job.queue, job.name, job.created_at, job.owner,
-                 job.status.value, str(job.path), job.options, str(job.pwd), job.scheduler_type))
+                 job.status.value, str(job.path), job.options, str(job.pwd), job.scheduler_type, job.scheduler_job_ref))
 
             self._con.commit()
         except sqlite3.IntegrityError as e:
@@ -199,6 +211,7 @@ class DatabaseHelper(metaclass=Singleton):
         rows = self._cur.fetchall()
         jobs = []
         for row in rows:
+            scheduler_job_ref = row[11] if len(row) > 11 else None
             job = Job(
                 id_=row[0],
                 queue=row[1],
@@ -209,6 +222,7 @@ class DatabaseHelper(metaclass=Singleton):
                 path=row[6],
                 options=row[7],
                 scheduler_job_id=row[8],
+                scheduler_job_ref=scheduler_job_ref,
                 pwd=row[9],
                 scheduler_type=row[10]
             )
@@ -224,6 +238,7 @@ class DatabaseHelper(metaclass=Singleton):
         row = self._cur.fetchone()
         if row is None:
             raise Exception('Job not found')
+        scheduler_job_ref = row[11] if len(row) > 11 else None
         return Job(
                 id_=row[0],
                 queue=row[1],
@@ -234,6 +249,7 @@ class DatabaseHelper(metaclass=Singleton):
                 path=row[6],
                 options=row[7],
                 scheduler_job_id=row[8],
+                scheduler_job_ref=scheduler_job_ref,
                 pwd=row[9],
                 scheduler_type=row[10]
             )
@@ -267,6 +283,13 @@ class DatabaseHelper(metaclass=Singleton):
         self._refresh_connection()
         self._cur.execute(
             'UPDATE jobs SET scheduler_job_id = ? WHERE id = ? AND owner = ?', (scheduler_job_id, job_id, owner))
+        self._con.commit()
+
+    def set_job_scheduler_ref(self, job_id: int, owner: str, scheduler_job_ref: str) -> None:
+        '''Sets the scheduler job reference of a job.'''
+        self._refresh_connection()
+        self._cur.execute(
+            'UPDATE jobs SET scheduler_job_ref = ? WHERE id = ? AND owner = ?', (scheduler_job_ref, job_id, owner))
         self._con.commit()
 
     def insert_job_metric(
