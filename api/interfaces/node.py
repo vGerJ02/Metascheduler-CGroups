@@ -113,7 +113,7 @@ class Node:
                 stdout_thread.start()
                 stderr_thread.start()
                 try:
-                    process.wait(timeout=float(os.getenv('SSH_TIMEOUT', '30')))
+                    process.wait()
                 except subprocess.TimeoutExpired:
                     process.kill()
                     raise
