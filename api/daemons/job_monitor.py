@@ -12,7 +12,7 @@ from api.utils.policy_factory import get_policy_by_name
 from api.utils.singleton import Singleton
 from rich import print
 
-CYCLE_TIME = 2
+CYCLE_TIME = 1
 
 
 def log(message):
@@ -57,8 +57,8 @@ class JobMonitorDaemon(metaclass=Singleton):
     def _execute_cycle(self):
         self._update_policy_if_needed()
         self._update_jobs_queue()
-        self._update_scheduler_queues()
         self._collect_metrics()
+        self._update_scheduler_queues()
         self._make_decisions()
         self._make_decisions()
 

@@ -11,7 +11,7 @@ import getpass
 HADOOP_HOME = "/usr/hdp/2.6.5.0-292/hadoop"
 # JAVA_HOME = '/usr/lib/jvm/jre/'
 JAVA_HOME = "/usr/lib/jvm/java-8-openjdk"
-YARN_APP_ID_GRACE_SECONDS = 30
+YARN_APP_ID_GRACE_SECONDS = 60
 
 
 # export JAVA_HOME=/usr/lib/jvm/jre/ && /opt/hadoop/bin/yarn jar /opt/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.5.jar pi 2 4
@@ -57,6 +57,15 @@ class ApacheHadoop(Scheduler):
                 if state in {"RUNNING", "ACCEPTED", "SUBMITTED"}:
                     still_running.append(job)
                     continue
+                if state is None and final_state is None:
+                    queued_at = getattr(job, "queued_at", None)
+                    if queued_at and datetime.utcnow() - queued_at < timedelta(seconds=YARN_APP_ID_GRACE_SECONDS):
+                        still_running.append(job)
+                        continue
+                    response = self._call_yarn_application()
+                    if self._is_any_job_running(response):
+                        still_running.append(job)
+                        continue
                 if final_state in {"SUCCEEDED"} or state in {"FINISHED"}:
                     update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
                 elif final_state in {"FAILED", "KILLED"} or state in {"FAILED", "KILLED"}:
