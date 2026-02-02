@@ -28,20 +28,6 @@ async def read_master_node():
     }
 
 
-@router.get('/{node_id}')
-async def read_node(node_id: int):
-    if node_id >= len(AppConfig().nodes):
-        raise HTTPException(status_code=404, detail='Node not found')
-    node = AppConfig().nodes[node_id]
-
-    return {
-        'id': node.id_,
-        'ip': node.ip,
-        'port': node.port,
-        'is_alive': node.is_alive
-    }
-
-
 _METRICS_CMD = (
     "bash -lc '"
     "read cpu user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat; "
@@ -110,3 +96,17 @@ async def read_nodes_metrics():
             'error': error,
         })
     return nodes_metrics
+
+
+@router.get('/{node_id}')
+async def read_node(node_id: int):
+    if node_id >= len(AppConfig().nodes):
+        raise HTTPException(status_code=404, detail='Node not found')
+    node = AppConfig().nodes[node_id]
+
+    return {
+        'id': node.id_,
+        'ip': node.ip,
+        'port': node.port,
+        'is_alive': node.is_alive
+    }
