@@ -47,6 +47,42 @@ class JobMetricResponse:
     disk_read_bytes: float
     disk_write_bytes: float
 
+
+@app.command("nodes-metrics", help="Get metrics for all nodes.")
+def nodes_metrics():
+    response: Response = HTTP_Client().get('/cluster/nodes/metrics')
+    metrics_raw = response.json()
+
+    table = Table(title="Node Metrics", show_header=True, header_style="bold magenta")
+    table.add_column("ID", style="dim")
+    table.add_column("IP", style="dim")
+    table.add_column("Alive", style="dim")
+    table.add_column("CPU (%)", style="dim")
+    table.add_column("RAM (%)", style="dim")
+    table.add_column("Disk (%)", style="dim")
+    table.add_column("Load1", style="dim")
+    table.add_column("Error", style="dim")
+
+    for metric in metrics_raw:
+        cpu = metric.get("cpu_percent")
+        ram = metric.get("ram_percent")
+        disk = metric.get("disk_percent")
+        load1 = metric.get("load1")
+        error = metric.get("error") or ""
+        table.add_row(
+            str(metric.get("id")),
+            str(metric.get("ip")),
+            str(metric.get("is_alive")),
+            f"{cpu:.2f}" if isinstance(cpu, (int, float)) else "-",
+            f"{ram:.2f}" if isinstance(ram, (int, float)) else "-",
+            f"{disk:.2f}" if isinstance(disk, (int, float)) else "-",
+            f"{load1:.2f}" if isinstance(load1, (int, float)) else "-",
+            error,
+        )
+
+    panel = Panel(table, border_style="green")
+    print(panel)
+
 @dataclass
 class JobMetricResponse:
     id: int

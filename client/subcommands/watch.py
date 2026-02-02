@@ -8,6 +8,8 @@ import time
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.panel import Panel
 from rich.console import Console
+from rich.table import Table
+from rich.live import Live
 from client.subcommands.get import JobStatus, cluster_mode as get_cluster_mode, queues as get_queues, jobs as get_jobs, job as get_job
 
 from client.helpers.http_client import HTTP_Client
@@ -90,3 +92,47 @@ def job(id: Annotated[int, typer.Argument(help="The Job ID.")]):
         get_job(id)
         show_progress_bar()
         console.clear()
+
+
+def _build_nodes_metrics_table(metrics_raw):
+    table = Table(title="Node Metrics", show_header=True, header_style="bold magenta")
+    table.add_column("ID", style="dim")
+    table.add_column("IP", style="dim")
+    table.add_column("Alive", style="dim")
+    table.add_column("CPU (%)", style="dim")
+    table.add_column("RAM (%)", style="dim")
+    table.add_column("Disk (%)", style="dim")
+    table.add_column("Load1", style="dim")
+    table.add_column("Error", style="dim")
+
+    for metric in metrics_raw:
+        cpu = metric.get("cpu_percent")
+        ram = metric.get("ram_percent")
+        disk = metric.get("disk_percent")
+        load1 = metric.get("load1")
+        error = metric.get("error") or ""
+        table.add_row(
+            str(metric.get("id")),
+            str(metric.get("ip")),
+            str(metric.get("is_alive")),
+            f"{cpu:.2f}" if isinstance(cpu, (int, float)) else "-",
+            f"{ram:.2f}" if isinstance(ram, (int, float)) else "-",
+            f"{disk:.2f}" if isinstance(disk, (int, float)) else "-",
+            f"{load1:.2f}" if isinstance(load1, (int, float)) else "-",
+            error,
+        )
+    return table
+
+
+@app.command("nodes-metrics", help="Watch live metrics for all nodes.")
+def nodes_metrics():
+    console.log("Watching node metrics... (Press Ctrl+C to stop)")
+    updates_remaining = updates_number
+    with Live(console=console, refresh_per_second=4) as live:
+        while updates_remaining > 0:
+            response = HTTP_Client().get('/cluster/nodes/metrics')
+            metrics_raw = response.json()
+            table = _build_nodes_metrics_table(metrics_raw)
+            live.update(table)
+            updates_remaining -= 1
+            time.sleep(update_interval)
