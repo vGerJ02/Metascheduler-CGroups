@@ -2,10 +2,13 @@ import time
 from copy import deepcopy
 from api.classes.apache_hadoop import ApacheHadoop
 from api.classes.sge import SGE
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from api.interfaces.job import Job
 from api.interfaces.node import Node
 from api.interfaces.scheduler import Scheduler
+
+V1_SHARES_MIN = 2
+V1_SHARES_MAX = 262144
 
 
 class CgroupsScheduler(Scheduler):
@@ -20,8 +23,21 @@ class CgroupsScheduler(Scheduler):
         self.hadoop = ApacheHadoop()
         self.sge = SGE()
         self.parent_cgroup_path = ""
+        self.parent_cgroup_paths: dict[str, str] = {}
+        self.cgroups_version = "v2"
         self._last_usage = 0
         self._last_time = time.time()
+        self._last_usage_v1 = 0
+        self._last_time_v1 = time.time()
+
+    def set_cgroups_version(self, version: str):
+        normalized = str(version).strip().lower()
+        if normalized in {"1", "v1", "legacy"}:
+            self.cgroups_version = "v1"
+        elif normalized in {"2", "v2", "unified"}:
+            self.cgroups_version = "v2"
+        else:
+            raise ValueError(f"Unknown cgroups version '{version}'. Use 'v1' or 'v2'.")
 
     def set_master_node(self, node: Node):
         """Assign the master node and configure both SGE and Hadoop with it."""
@@ -108,17 +124,31 @@ class CgroupsScheduler(Scheduler):
             return
 
         # Get the cgroup path from the first PID and build the full subcgroup path
+        if self.cgroups_version == "v1":
+            cgroup_info = self.master_node.send_command(f"cat /proc/{pids[0]}/cgroup", critical=False)
+            cpu_controller, cpu_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpu", "cpuacct"})
+            if not cpu_rel_path:
+                print(f"⚠️ Failed to get cpu cgroup path for PID {pids[0]}")
+                return
+            cpu_controller = cpu_controller or "cpu"
+            base_path = f"/sys/fs/cgroup/{cpu_controller}{cpu_rel_path}"
+            full_path = f"{base_path}/{scheduler_type}"
+            shares = self._v1_weight_to_shares(weight)
+            cmd = f"echo {shares} | sudo tee {full_path}/cpu.shares"
+            self.master_node.send_command(cmd, critical=False)
+            print(f"✅ Assigned cpu.shares={shares} to cgroup '{full_path}'")
+            return
+
         get_cgroup_path_cmd = f"cat /proc/{pids[0]}/cgroup | grep '^0::' | cut -d: -f3"
-        cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
+        cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd, critical=False).strip()
         if not cgroup_rel_path:
             print(f"⚠️ Failed to get cgroup path for PID {pids[0]}")
             return
 
         full_path = f"/sys/fs/cgroup{cgroup_rel_path}/{scheduler_type}"
 
-        # Set the new CPU weight
         cmd = f"echo {weight} | sudo tee {full_path}/cpu.weight"
-        result = self.master_node.send_command(cmd)
+        self.master_node.send_command(cmd, critical=False)
         print(f"✅ Assigned cpu.weight={weight} to cgroup '{full_path}'")
 
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
@@ -127,6 +157,9 @@ class CgroupsScheduler(Scheduler):
 
     def assign_pids_to_cgroup(self, pids: list[str], sub_cgroup_name: str):
         """Assign a list of PIDs to a specific sub-cgroup ('sge' or 'hadoop')."""
+        if self.cgroups_version == "v1":
+            self._assign_pids_to_cgroup_v1(pids, sub_cgroup_name)
+            return
         for pid in pids:
             get_cgroup_path_cmd = f"cat /proc/{pid}/cgroup | grep '^0::' | cut -d: -f3"
             cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd).strip()
@@ -202,14 +235,136 @@ class CgroupsScheduler(Scheduler):
             elif sub_cgroup_name == "hadoop" and self.hadoop.cgroup_path == "":
                 self.hadoop.cgroup_path = target_sub_cgroup
 
+    def _assign_pids_to_cgroup_v1(self, pids: list[str], sub_cgroup_name: str):
+        """Assign PIDs to cgroups v1 (cpu/cpuacct + memory)."""
+        for pid in pids:
+            cgroup_info = self.master_node.send_command(f"cat /proc/{pid}/cgroup", critical=False)
+            cpu_controller, cpu_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpu"})
+            cpuacct_controller, cpuacct_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpuacct"})
+            mem_controller, mem_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"memory"})
+
+            if not cpu_rel_path:
+                print(f"⚠️ No cpu cgroup found for PID {pid}")
+                continue
+
+            cpu_controller = cpu_controller or "cpu"
+            cpu_base_path = f"/sys/fs/cgroup/{cpu_controller}{cpu_rel_path}"
+            cpu_target = (
+                cpu_base_path if sub_cgroup_name in cpu_rel_path.split('/')
+                else f"{cpu_base_path}/{sub_cgroup_name}"
+            )
+
+            if self.parent_cgroup_path == "":
+                path_parts = cpu_base_path.split('/')
+                if path_parts[-1] in ["hadoop", "sge"]:
+                    self.parent_cgroup_path = '/'.join(path_parts[:-1])
+                else:
+                self.parent_cgroup_path = cpu_base_path
+                self.parent_cgroup_paths["cpu"] = self.parent_cgroup_path
+                if cpuacct_rel_path:
+                    cpuacct_controller = cpuacct_controller or cpu_controller
+                    cpuacct_base = f"/sys/fs/cgroup/{cpuacct_controller}{cpuacct_rel_path}"
+                    path_parts = cpuacct_base.split('/')
+                    if path_parts[-1] in ["hadoop", "sge"]:
+                        cpuacct_base = '/'.join(path_parts[:-1])
+                    self.parent_cgroup_paths["cpuacct"] = cpuacct_base
+                print(f"📦 Parent cgroup set to: {self.parent_cgroup_path}")
+
+            self._ensure_v1_cgroup(cpu_target)
+            self._move_pid_to_v1_cgroup(pid, cpu_target)
+
+            if cpuacct_rel_path:
+                cpuacct_controller = cpuacct_controller or cpu_controller
+                cpuacct_base_path = f"/sys/fs/cgroup/{cpuacct_controller}{cpuacct_rel_path}"
+                cpuacct_target = (
+                    cpuacct_base_path if sub_cgroup_name in cpuacct_rel_path.split('/')
+                    else f"{cpuacct_base_path}/{sub_cgroup_name}"
+                )
+                if cpuacct_target != cpu_target:
+                    self._ensure_v1_cgroup(cpuacct_target)
+                    self._move_pid_to_v1_cgroup(pid, cpuacct_target)
+
+            if mem_rel_path:
+                mem_controller = mem_controller or "memory"
+                mem_base_path = f"/sys/fs/cgroup/{mem_controller}{mem_rel_path}"
+                mem_target = (
+                    mem_base_path if sub_cgroup_name in mem_rel_path.split('/')
+                    else f"{mem_base_path}/{sub_cgroup_name}"
+                )
+                if "memory" not in self.parent_cgroup_paths:
+                    path_parts = mem_base_path.split('/')
+                    if path_parts[-1] in ["hadoop", "sge"]:
+                        self.parent_cgroup_paths["memory"] = '/'.join(path_parts[:-1])
+                    else:
+                        self.parent_cgroup_paths["memory"] = mem_base_path
+                self._ensure_v1_cgroup(mem_target)
+                self._move_pid_to_v1_cgroup(pid, mem_target)
+
+            if sub_cgroup_name == "sge" and self.sge.cgroup_path == "":
+                self.sge.cgroup_path = cpu_target
+            elif sub_cgroup_name == "hadoop" and self.hadoop.cgroup_path == "":
+                self.hadoop.cgroup_path = cpu_target
+
+    def _parse_v1_cgroup_path(self, cgroup_info: str, controllers: set[str]) -> Tuple[Optional[str], Optional[str]]:
+        for line in cgroup_info.splitlines():
+            parts = line.split(":")
+            if len(parts) != 3:
+                continue
+            subsystems = set(parts[1].split(","))
+            if controllers & subsystems:
+                return parts[1], parts[2]
+        return None, None
+
+    def _ensure_v1_cgroup(self, path: str):
+        check_cmd = f"test -d '{path}' && echo 'EXISTS' || echo 'MISSING'"
+        exists = self.master_node.send_command(check_cmd, critical=False).strip()
+        if exists == "MISSING":
+            self.master_node.send_command(f"sudo mkdir -p '{path}'", critical=False)
+        for node in self.nodes:
+            try:
+                node.send_command(f"sudo mkdir -p '{path}'", critical=False)
+            except Exception:
+                continue
+
+    def _move_pid_to_v1_cgroup(self, pid: str, path: str):
+        move_cmd = (
+            f"bash -c \"if kill -0 {pid} 2>/dev/null; "
+            f"then echo {pid} | sudo tee '{path}/tasks' > /dev/null; "
+            f"fi\""
+        )
+        for node in self.nodes:
+            try:
+                node.send_command(move_cmd, critical=False)
+            except Exception:
+                continue
+
+    def _v1_weight_to_shares(self, weight: int) -> int:
+        weight_clamped = max(1, min(10000, int(weight)))
+        shares = V1_SHARES_MIN + (weight_clamped - 1) * (V1_SHARES_MAX - V1_SHARES_MIN) / (10000 - 1)
+        return max(V1_SHARES_MIN, min(V1_SHARES_MAX, int(round(shares))))
+
+    def _v1_shares_to_weight(self, shares: int) -> int:
+        shares_clamped = max(V1_SHARES_MIN, min(V1_SHARES_MAX, int(shares)))
+        weight = 1 + (shares_clamped - V1_SHARES_MIN) * (10000 - 1) / (V1_SHARES_MAX - V1_SHARES_MIN)
+        return max(1, min(10000, int(round(weight))))
+
     def get_cpu_weight(self) -> int:
         """Return the current cpu.weight value from the parent cgroup."""
         if not self.parent_cgroup_path:
             print("⚠️ Parent cgroup path is not defined.")
             return 0
+        if self.cgroups_version == "v1":
+            cmd = f"cat '{self.parent_cgroup_path}/cpu.shares'"
+            result = self.master_node.send_command(cmd, critical=False).strip()
+            try:
+                shares = int(result)
+                return self._v1_shares_to_weight(shares)
+            except ValueError:
+                print(f"⚠️ Could not interpret cpu.shares: {result}")
+                return 0
 
         cmd = f"cat '{self.parent_cgroup_path}/cpu.weight'"
-        result = self.master_node.send_command(cmd).strip()
+        result = self.master_node.send_command(cmd, critical=False).strip()
         try:
             return int(result)
         except ValueError:
@@ -221,18 +376,34 @@ class CgroupsScheduler(Scheduler):
         Estimates CPU usage (%) from cgroup's cpu.stat via send_command().
         """
         try:
-            # Llegeix cpu.stat via SSH/exec remot
+            if self.cgroups_version == "v1":
+                cpuacct_path = self.parent_cgroup_paths.get("cpuacct") or self.parent_cgroup_path
+                usage_file = f"{cpuacct_path}/cpuacct.usage"
+                raw = self.master_node.send_command(f"cat '{usage_file}'", critical=False).strip()
+                current_usage = int(raw)
+                now = time.time()
+                elapsed = now - self._last_time_v1
+
+                delta_usage = current_usage - self._last_usage_v1
+                self._last_usage_v1 = current_usage
+                self._last_time_v1 = now
+
+                if elapsed <= 0:
+                    return 0.0
+
+                cpu_percent = (delta_usage / (elapsed * 1_000_000_000)) * 100
+                return max(0.0, cpu_percent)
+
             stat_file = f"{self.parent_cgroup_path}/cpu.stat"
             cmd = f"cat '{stat_file}'"
-            raw = self.master_node.send_command(cmd)
+            raw = self.master_node.send_command(cmd, critical=False)
 
-            # Busca la línia usage_usec
             usage_line = next(
                 (l for l in raw.splitlines() if l.startswith("usage_usec")),
                 None
             )
             if not usage_line:
-                print("⚠️ cpu.stat does not contain 'usage_use'")
+                print("⚠️ cpu.stat does not contain 'usage_usec'")
                 return 0.0
 
             current_usage = int(usage_line.split()[1])
@@ -246,7 +417,6 @@ class CgroupsScheduler(Scheduler):
             if elapsed <= 0:
                 return 0.0
 
-            # 1 core = 1_000_000 usec per segon
             cpu_percent = (delta_usage / (elapsed * 1_000_000)) * 100
             return min(100.0, max(0.0, cpu_percent))
 
@@ -259,7 +429,15 @@ class CgroupsScheduler(Scheduler):
         if not self.parent_cgroup_path:
             print("⚠️ Parent cgroup path is not defined.")
             return
+        if self.cgroups_version == "v1":
+            shares = self._v1_weight_to_shares(weight)
+            cmd = f"sudo bash -c \"echo {shares} > '{self.parent_cgroup_path}/cpu.shares'\""
+            for node in self.nodes:
+                node.send_command(cmd, critical=False)
+            print(f"✅ cpu.shares set to {shares} in {self.parent_cgroup_path}")
+            return
 
         cmd = f"sudo bash -c \"echo {weight} > '{self.parent_cgroup_path}/cpu.weight'\""
-        self.master_node.send_command(cmd)
+        for node in self.nodes:
+            node.send_command(cmd, critical=False)
         print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
