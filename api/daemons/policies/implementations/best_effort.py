@@ -53,8 +53,6 @@ class BestEffortPolicy(PlanificationPolicy):
         """Adjusts CPU weights (cgroups) or nice values based on priority and job presence."""
         for scheduler in self.schedulers:
             if isinstance(scheduler, CgroupsScheduler):
-                cgroup_path = scheduler.parent_cgroup_path
-
                 if scheduler == self.highest_priority:
                     weight = HIGH_CPU_WEIGHT
                 elif len(scheduler.get_job_list()) > 0:
@@ -63,7 +61,7 @@ class BestEffortPolicy(PlanificationPolicy):
                     weight = DEFAULT_CPU_WEIGHT
 
                 print(f"[BestEffortPolicy] (CGroups) Scheduler '{scheduler.name}' dynamic weight: {weight}")
-                self._set_cpu_weight(cgroup_path, weight)
+                scheduler.set_cpu_weight(weight)
 
             else:
                 if scheduler == self.highest_priority:
@@ -72,25 +70,3 @@ class BestEffortPolicy(PlanificationPolicy):
                 if len(scheduler.get_job_list()) > 0:
                     scheduler.adjust_nice_of_all_jobs(MINIMUM_NICE_VALUE)
                     print(f"[BestEffortPolicy] Scheduler '{scheduler.name}' nice set to {MINIMUM_NICE_VALUE}")
-
-    def _set_cpu_weight(self, cgroup_path: str, weight: int):
-        """Sends a remote command to set the CPU weight for a given cgroup path."""
-        print(f"[INFO] Adjusting {cgroup_path}/cpu.weight to {weight}")
-        cmd_check = f"test -d '{cgroup_path}/'; echo $?"
-        cmd_set = f"echo {weight} | sudo tee '{cgroup_path}/cpu.weight' > /dev/null"
-
-        for node in self.nodes:
-            try:
-                result = int(node.send_command(cmd_check))
-            except ValueError:
-                print(f"Node {node.id_}: Error reading cgroup permissions")
-                continue
-
-            if int(result) == 0:
-                try:
-                    node.send_command(cmd_set)
-                    print(f"Node {node.id_}: cpu.weight successfully set to {weight}")
-                except Exception as e:
-                    print(f"Node {node.id_}: Failed to set cpu.weight — insufficient permissions or invalid cgroup path")
-            else:
-                print(f"Node {node.id_}: cgroup path not accessible — skipping adjustment")

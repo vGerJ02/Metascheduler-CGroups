@@ -82,10 +82,9 @@ class SharedPolicy(PlanificationPolicy):
 
     def _calculate_weight_from_cpu_usage(self, cpu_usage: float) -> int:
         '''
-        Converts CPU usage percentage into a cgroups v2 weight.
-
-        In cgroups v2, CPU weights range from 1 (minimum) to 10000 (maximum),
-        where higher weights give more CPU allocation relative to other groups.
+        Converts CPU usage percentage into a generic cgroup weight (1–10000).
+        The CgroupsScheduler converts this weight to the appropriate backend
+        (v2 cpu.weight or v1 cpu.shares).
 
         Parameters:
             cpu_usage (float): The CPU usage of the scheduler, in percentage (0–100).

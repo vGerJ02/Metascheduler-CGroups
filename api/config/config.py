@@ -14,6 +14,7 @@ class AppConfig(metaclass=Singleton):
 
     _config: Any
     root: bool
+    cgroups_version: str
     nodes: List[Node]
     master_node: Node
     schedulers: List[Scheduler]
@@ -26,6 +27,7 @@ class AppConfig(metaclass=Singleton):
         if config_file:
             self.root = os.geteuid() == 0
             self._load_config(config_file)
+            self._load_cgroups_version()
             self._load_nodes()
             self._load_schedulers()
             self._load_mode()
@@ -48,12 +50,24 @@ class AppConfig(metaclass=Singleton):
         self.nodes = nodes_list
         self.master_node = nodes_list[0]
 
+    def _load_cgroups_version(self) -> None:
+        raw_version = self._config.get('cluster', {}).get('cgroups_version', 'v2')
+        normalized = str(raw_version).strip().lower()
+        if normalized in {"1", "v1", "legacy"}:
+            self.cgroups_version = "v1"
+        elif normalized in {"2", "v2", "unified"}:
+            self.cgroups_version = "v2"
+        else:
+            raise ValueError(f"Unknown cgroups version '{raw_version}'. Use 'v1' or 'v2'.")
+
     def _load_schedulers(self) -> None:
         schedulers = self._config['cluster']['schedulers']
         schedulers_list: List[Scheduler] = []
         for scheduler in schedulers:
             scheduler_obj = get_scheduler(scheduler['name'])
             master = scheduler['master']
+            if scheduler['name'] == "Cgroups" and hasattr(scheduler_obj, "set_cgroups_version"):
+                scheduler_obj.set_cgroups_version(self.cgroups_version)
             scheduler_obj.set_nodes(self.nodes)
             weight = int(scheduler['weight'])
             if weight < 0 or weight > 100:
