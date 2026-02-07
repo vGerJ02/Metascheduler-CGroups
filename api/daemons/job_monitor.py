@@ -103,13 +103,30 @@ class JobMonitorDaemon(metaclass=Singleton):
                     continue
 
                 processes_info = scheduler.get_all_jobs_info()
+                if not processes_info:
+                    log(
+                        f'No process samples for scheduler {scheduler.name} '
+                        f'with {len(running_jobs)} running jobs'
+                    )
+                    continue
+
                 usage_by_user = self._aggregate_usage_by_user(processes_info)
                 if not usage_by_user:
+                    log(
+                        f'No usage grouped by user for scheduler {scheduler.name}. '
+                        f'Raw process samples: {len(processes_info)}'
+                    )
                     continue
 
                 for job in running_jobs:
                     cpu, ram, read_bytes, write_bytes = self._usage_for_job(
                         job, running_jobs, usage_by_user)
+                    if cpu == 0.0 and ram == 0.0:
+                        owners_detected = ", ".join(sorted(usage_by_user.keys())) or "none"
+                        log(
+                            f'Zero metrics for job {job.id_} ({job.scheduler_type}) owner={job.owner}. '
+                            f'Detected process owners: {owners_detected}'
+                        )
                     db.insert_job_metric(
                         job.id_, cpu, ram, read_bytes, write_bytes, collected_at)
         except Exception as exc:
@@ -141,13 +158,40 @@ class JobMonitorDaemon(metaclass=Singleton):
     def _usage_for_job(self, job: Job, running_jobs: List[Job], usage_by_user: dict[str, dict[str, float]]):
         '''Split the aggregated usage of a user across its running jobs.'''
         user_usage = usage_by_user.get(job.owner)
-        if not user_usage:
-            return 0.0, 0.0, 0.0, 0.0
-        same_user_jobs = [j for j in running_jobs if j.owner == job.owner]
-        divisor = max(1, len(same_user_jobs))
-        return (
-            user_usage['cpu'] / divisor,
-            user_usage['ram'] / divisor,
-            user_usage['read'] / divisor,
-            user_usage['write'] / divisor,
-        )
+        if user_usage:
+            same_user_jobs = [j for j in running_jobs if j.owner == job.owner]
+            divisor = max(1, len(same_user_jobs))
+            return (
+                user_usage['cpu'] / divisor,
+                user_usage['ram'] / divisor,
+                user_usage['read'] / divisor,
+                user_usage['write'] / divisor,
+            )
+
+        # Hadoop containers commonly run as service users (yarn/mapred/hdfs),
+        # so owner-based attribution can miss real usage.
+        if getattr(job, 'scheduler_type', '') == 'H':
+            service_users = ('yarn', 'mapred', 'hdfs')
+            service_usage = {'cpu': 0.0, 'ram': 0.0, 'read': 0.0, 'write': 0.0}
+            found_service_usage = False
+            for user in service_users:
+                usage = usage_by_user.get(user)
+                if not usage:
+                    continue
+                found_service_usage = True
+                service_usage['cpu'] += usage['cpu']
+                service_usage['ram'] += usage['ram']
+                service_usage['read'] += usage['read']
+                service_usage['write'] += usage['write']
+
+            if found_service_usage:
+                hadoop_jobs = [j for j in running_jobs if getattr(j, 'scheduler_type', '') == 'H']
+                divisor = max(1, len(hadoop_jobs))
+                return (
+                    service_usage['cpu'] / divisor,
+                    service_usage['ram'] / divisor,
+                    service_usage['read'] / divisor,
+                    service_usage['write'] / divisor,
+                )
+
+        return 0.0, 0.0, 0.0, 0.0
