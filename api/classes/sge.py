@@ -235,22 +235,32 @@ class SGE(Scheduler):
         cmd = (
             "bash -c '"
             f"for pid in {pid_list}; do "
-            "read_bytes=$(sudo -n awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
-            "awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
-            "write_bytes=$(sudo -n awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || "
-            "awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null || echo 0); "
+            "source='unknown'; read_bytes=0; write_bytes=0; "
+            "if [ ! -e /proc/$pid/io ]; then source='missing_pid'; "
+            "elif read_bytes=$(awk '/^read_bytes/ {print $2}' /proc/$pid/io 2>/dev/null) "
+            " && write_bytes=$(awk '/^write_bytes/ {print $2}' /proc/$pid/io 2>/dev/null); then source='direct'; "
+            "else source='permission_denied_or_restricted'; fi; "
             "read_bytes=${read_bytes:-0}; write_bytes=${write_bytes:-0}; "
-            'echo "$pid $read_bytes $write_bytes"; '
+            'echo "$pid $read_bytes $write_bytes $source"; '
             "done'"
         )
         output = node.send_command(cmd, critical=False)
         io_by_pid = {}
         for line in output.splitlines():
             parts = line.split()
-            if len(parts) != 3:
+            if len(parts) < 4:
                 continue
             try:
-                io_by_pid[int(parts[0])] = (float(parts[1]), float(parts[2]))
+                pid = int(parts[0])
+                read_bytes = float(parts[1])
+                write_bytes = float(parts[2])
+                source = parts[3]
+                io_by_pid[pid] = (read_bytes, write_bytes)
+                if source != "direct":
+                    print(
+                        f"IO read fallback for PID {pid} on node {node.ip}: "
+                        f"source={source}, read={read_bytes}, write={write_bytes}"
+                    )
             except ValueError:
                 continue
         return io_by_pid
