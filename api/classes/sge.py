@@ -56,6 +56,7 @@ class SGE(Scheduler):
             if job_id_state[1] == "Eqw":
                 update_job_status(job.id_, job.owner, JobStatus.ERROR)
                 job.status = JobStatus.ERROR
+                self._log_eqw_details(job)
                 actual_jobs.remove(job)
             if job_id_state[1] == "r":
                 update_job_status(job.id_, job.owner, JobStatus.RUNNING)
@@ -70,7 +71,8 @@ class SGE(Scheduler):
         ]
         for job in ended_jobs:
             update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
-            job.status =JobStatus.COMPLETED
+            job.status = JobStatus.COMPLETED
+
         self.running_jobs = actual_jobs
         self._last_job_list_id = [job.scheduler_job_id for job in actual_jobs]
 
@@ -115,12 +117,16 @@ class SGE(Scheduler):
             update_job_status(job.id_, job.owner, JobStatus.QUEUED)
             self.running_jobs.append(job)
         except Exception as e:
-            print(f"[SGE] Failed to submit job id={job.id_} name={job.name} "
-                  f"owner={job.owner} path={job.path} options='{job.options}': {e}")
+            print(
+                f"[SGE] Failed to submit job id={job.id_} name={job.name} "
+                f"owner={job.owner} path={job.path} options='{job.options}': {e}"
+            )
             try:
                 update_job_status(job.id_, job.owner, JobStatus.ERROR)
             except Exception as status_exc:
-                print( f"[SGE] Could not mark job id={job.id_} as ERROR after submission failure: {status_exc}")
+                print(
+                    f"[SGE] Could not mark job id={job.id_} as ERROR after submission failure: {status_exc}"
+                )
             raise e
 
     def _call_qsub(self, job: Job) -> int:
@@ -131,17 +137,17 @@ class SGE(Scheduler):
         current_user = getpass.getuser()
         target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
         qsub_cmd = (
-                f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} "
-                f"&& {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
-                )
+            f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} "
+            f"&& {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
+        )
         message = self.master_node.send_command(qsub_cmd)
         try:
             assigned_job_id = self._parse_qsub(message)
             return assigned_job_id
         except Exception as exc:
             print(
-                    f"[SGE] qsub returned unexpected output for job id={job.id_} name={job.name}: {message.strip()}"
-                    )
+                f"[SGE] qsub returned unexpected output for job id={job.id_} name={job.name}: {message.strip()}"
+            )
             print(f"[SGE] qsub command was: {qsub_cmd}")
             raise RuntimeError(f"Unable to parse qsub output: {exc}") from exc
 
@@ -163,7 +169,6 @@ class SGE(Scheduler):
             f"[SGE] Check SGE output/error files under {job.pwd} "
             f"(usually {job.name}.o{job.scheduler_job_id} and {job.name}.e{job.scheduler_job_id})."
         )
-
 
     def _parse_qsub(self, qsub_output) -> int:
         """

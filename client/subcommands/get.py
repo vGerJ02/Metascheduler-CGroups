@@ -2,6 +2,7 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import Enum
 import os
+from typing import Optional
 from typing_extensions import Annotated
 from requests import Response
 import typer
@@ -40,7 +41,9 @@ class JobResponse:
     scheduler_job_ref: Optional[str] = None
     quiet: Optional[bool] = None
 
+
 _JOB_RESPONSE_FIELDS = {field_.name for field_ in fields(JobResponse)}
+
 
 def _build_job_response(payload: dict) -> JobResponse:
     filtered = {k: v for k, v in payload.items() if k in _JOB_RESPONSE_FIELDS}
