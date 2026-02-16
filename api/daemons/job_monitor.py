@@ -60,7 +60,6 @@ class JobMonitorDaemon(metaclass=Singleton):
         self._collect_metrics()
         self._update_scheduler_queues()
         self._make_decisions()
-        self._make_decisions()
 
     def _update_policy_if_needed(self):
         ''' Update the policy if needed '''
@@ -98,7 +97,10 @@ class JobMonitorDaemon(metaclass=Singleton):
             db = DatabaseHelper(self.config.schedulers)
             collected_at = datetime.utcnow()
             for scheduler in self.config.schedulers:
-                running_jobs = scheduler.get_job_list()
+                running_jobs = [
+                    job for job in scheduler.get_job_list()
+                    if job.status == JobStatus.RUNNING
+                ]
                 if not running_jobs:
                     continue
 

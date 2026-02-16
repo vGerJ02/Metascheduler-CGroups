@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import Enum
 import os
+from typing import Optional
 from typing_extensions import Annotated
 from requests import Response
 import typer
@@ -36,6 +37,16 @@ class JobResponse:
     scheduler_job_id: int
     pwd: str
     scheduler_type: str
+    scheduler_job_ref: Optional[str] = None
+    quiet: Optional[bool] = None
+
+
+_JOB_RESPONSE_FIELDS = {field_.name for field_ in fields(JobResponse)}
+
+
+def _build_job_response(payload: dict) -> JobResponse:
+    filtered = {k: v for k, v in payload.items() if k in _JOB_RESPONSE_FIELDS}
+    return JobResponse(**filtered)
 
 @dataclass
 class JobMetricResponse:
@@ -195,7 +206,7 @@ def jobs(status: Annotated[JobStatus, typer.Option(help="Job status.", case_sens
     response: Response = HTTP_Client().get(
         '/jobs', params)
     jobs_raw = response.json()
-    jobs = [JobResponse(**job) for job in jobs_raw]
+    jobs = [_build_job_response(job) for job in jobs_raw]
     table = Table(title="Jobs", show_header=True, header_style="bold magenta")
     table.add_column("ID", style="cyan", width=3)
     table.add_column("Queue", style="dim")
@@ -224,7 +235,7 @@ def job(id: Annotated[int, typer.Argument(help="The Job ID.")]):
     params = {}
     params["owner"] = os.getenv("USER")
     response: Response = HTTP_Client().get(f'/jobs/{id}', params)
-    job = JobResponse(**response.json())
+    job = _build_job_response(response.json())
     table = Table(title="Job", show_header=True, header_style="bold magenta")
     table.add_column("ID", style="cyan", width=3)
     table.add_column("Queue", style="dim")

@@ -105,8 +105,12 @@ class ApacheHadoop(Scheduler):
 
         """
         if self.running_jobs:
-            print(f"There is already a job running. Only one job can run at a time. {self.running_jobs}")
-            return
+            # Refresh tracked running jobs before rejecting new submissions.
+            # This avoids stale in-memory state causing false "already running" logs.
+            self.update_job_list([])
+            if self.running_jobs:
+                print(f"There is already a job running. Only one job can run at a time. {self.running_jobs}")
+                return
         try:
             self._call_yarn_jar(job)
             job.queued_at = datetime.utcnow()
@@ -160,7 +164,7 @@ class ApacheHadoop(Scheduler):
 
         """
         response = self.master_node.send_command(
-            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list -appStates SUBMITTED,ACCEPTED,RUNNING"
+            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list -appStates NEW,NEW_SAVING,SUBMITTED,ACCEPTED,RUNNING"
         )
         print(response)
         return response
@@ -179,8 +183,8 @@ class ApacheHadoop(Scheduler):
         except Exception as exc:
             response = str(exc)
 
-        state_match = re.search(r"State\\s*:\\s*(\\w+)", response)
-        final_match = re.search(r"Final-State\\s*:\\s*(\\w+)", response)
+        state_match = re.search(r"State\s*:\s*(\w+)", response)
+        final_match = re.search(r"Final-State\s*:\s*(\w+)", response)
         state = state_match.group(1) if state_match else None
         final_state = final_match.group(1) if final_match else None
         return state, final_state
