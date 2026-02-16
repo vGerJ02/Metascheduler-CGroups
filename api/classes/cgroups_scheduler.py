@@ -259,7 +259,7 @@ class CgroupsScheduler(Scheduler):
                 if path_parts[-1] in ["hadoop", "sge"]:
                     self.parent_cgroup_path = '/'.join(path_parts[:-1])
                 else:
-                self.parent_cgroup_path = cpu_base_path
+                    self.parent_cgroup_path = cpu_base_path
                 self.parent_cgroup_paths["cpu"] = self.parent_cgroup_path
                 if cpuacct_rel_path:
                     cpuacct_controller = cpuacct_controller or cpu_controller

@@ -68,19 +68,19 @@ def _parse_metrics_output(output: str) -> tuple[Optional[float], Optional[float]
 async def read_nodes_metrics():
     nodes_metrics = []
     for node in AppConfig().nodes:
-        if not node.is_alive:
-            nodes_metrics.append({
-                'id': node.id_,
-                'ip': node.ip,
-                'port': node.port,
-                'is_alive': node.is_alive,
-                'cpu_percent': None,
-                'ram_percent': None,
-                'disk_percent': None,
-                'load1': None,
-                'error': 'node not reachable',
-            })
-            continue
+        # if not node.is_alive:
+        #     nodes_metrics.append({
+        #         'id': node.id_,
+        #         'ip': node.ip,
+        #         'port': node.port,
+        #         'is_alive': node.is_alive,
+        #         'cpu_percent': None,
+        #         'ram_percent': None,
+        #         'disk_percent': None,
+        #         'load1': None,
+        #         'error': 'node not reachable',
+        #     })
+        #     continue
         output = node.send_command(_METRICS_CMD, critical=False)
         cpu, mem, disk, load = _parse_metrics_output(output)
         error = None if cpu is not None else output.strip()[:200] or 'unknown error'

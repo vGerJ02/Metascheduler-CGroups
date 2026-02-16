@@ -98,7 +98,10 @@ class JobMonitorDaemon(metaclass=Singleton):
             db = DatabaseHelper(self.config.schedulers)
             collected_at = datetime.utcnow()
             for scheduler in self.config.schedulers:
-                running_jobs = scheduler.get_job_list()
+                running_jobs = [
+                        job for job in scheduler.get_job_list()
+                        if job.status == JobStatus.RUNNING
+                        ]
                 if not running_jobs:
                     continue
 

@@ -179,8 +179,8 @@ class ApacheHadoop(Scheduler):
         except Exception as exc:
             response = str(exc)
 
-        state_match = re.search(r"State\\s*:\\s*(\\w+)", response)
-        final_match = re.search(r"Final-State\\s*:\\s*(\\w+)", response)
+        state_match = re.search(r"State\s*:\s*(\w+)", response)
+        final_match = re.search(r"Final-State\s*:\s*(\w+)", response)
         state = state_match.group(1) if state_match else None
         final_state = final_match.group(1) if final_match else None
         return state, final_state

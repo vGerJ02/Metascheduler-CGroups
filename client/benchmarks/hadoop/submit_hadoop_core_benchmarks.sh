@@ -21,7 +21,9 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 DELAY="${DELAY:-1}"
 HADOOP_QUIET="${HADOOP_QUIET:-1}"
 
-HADOOP_JAR="${HADOOP_JAR:-/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar}"
+HADOOP_EXAMPLES_JAR="${HADOOP_EXAMPLES_JAR:-/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar}"
+TESTDFSIO_JAR="${TESTDFSIO_JAR:-/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar}"
+TESTDFSIO_CLASS="${TESTDFSIO_CLASS:-TestDFSIO}"
 
 TERASORT_IN="${TERASORT_IN:-/user/${SUBMIT_USER}/terain}"
 TERASORT_OUT="${TERASORT_OUT:-/user/${SUBMIT_USER}/teraout}"
@@ -48,7 +50,8 @@ fi
 
 run_submit() {
   local name="$1"
-  local options="$2"
+  local path="$2"
+  local options="$3"
 
   cmd=(
     "${PYTHON_BIN}" "${ROOT_DIR}/client/main.py"
@@ -56,7 +59,7 @@ run_submit() {
     send job
     --name "${name}"
     --queue "${QUEUE_ID}"
-    --path "${HADOOP_JAR}"
+    --path "${path}"
     --scheduler-type H
     --options "${options}"
   )
@@ -70,15 +73,16 @@ run_submit() {
 
 echo "Submitting Hadoop benchmark suite to ${API_IP}:${API_PORT} (queue ${QUEUE_ID})"
 
-run_submit "${TERASORT_JOB_NAME}" "terasort ${TERASORT_IN} ${TERASORT_OUT}"
+run_submit "${TERASORT_JOB_NAME}" "${HADOOP_EXAMPLES_JAR}" "terasort ${TERASORT_IN} ${TERASORT_OUT}"
 sleep "${DELAY}"
 
-run_submit "${TESTDFSIO_JOB_NAME}" "TestDFSIO ${TESTDFSIO_ARGS}"
+run_submit "${TESTDFSIO_JOB_NAME}" "${TESTDFSIO_JAR}" "${TESTDFSIO_CLASS} ${TESTDFSIO_ARGS}"
 sleep "${DELAY}"
 
-run_submit "${WORDCOUNT_JOB_NAME}" "wordcount ${WORDCOUNT_IN} ${WORDCOUNT_OUT}"
+run_submit "${WORDCOUNT_JOB_NAME}" "${HADOOP_EXAMPLES_JAR}" "wordcount ${WORDCOUNT_IN} ${WORDCOUNT_OUT}"
 
 echo "Submitted:"
 echo "  - ${TERASORT_JOB_NAME}"
 echo "  - ${TESTDFSIO_JOB_NAME}"
 echo "  - ${WORDCOUNT_JOB_NAME}"
+

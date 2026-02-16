@@ -2,7 +2,7 @@
 
 # hdfs dfs -rm -r /user/gjaimejuan/teraout
 
-# hadoop jar /usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar teragen 10000 /user/gjaimejuan/terain
+# hadoop jar /usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar teragen 10000000 /user/gjaimejuan/terain
 
 
 python main.py send job \
