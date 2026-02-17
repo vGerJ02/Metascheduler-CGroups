@@ -1,3 +1,5 @@
+import os
+import shlex
 from typing import List, Tuple, Optional
 from datetime import datetime, timedelta
 from api.constants.job_status import JobStatus
@@ -55,6 +57,8 @@ class ApacheHadoop(Scheduler):
             if job.scheduler_job_ref:
                 state, final_state = self._get_application_status(job.scheduler_job_ref)
                 if state in {"RUNNING", "ACCEPTED", "SUBMITTED"}:
+                    if state == "RUNNING":
+                        job.status = JobStatus.RUNNING
                     still_running.append(job)
                     continue
                 if state is None and final_state is None:
@@ -68,10 +72,13 @@ class ApacheHadoop(Scheduler):
                         continue
                 if final_state in {"SUCCEEDED"} or state in {"FINISHED"}:
                     update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                    job.status = JobStatus.COMPLETED
                 elif final_state in {"FAILED", "KILLED"} or state in {"FAILED", "KILLED"}:
                     update_job_status(job.id_, job.owner, JobStatus.ERROR)
+                    job.status = JobStatus.ERROR
                 else:
                     update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                    job.status = JobStatus.COMPLETED
                 self._reset_java_process_nice()
                 continue
 
@@ -82,9 +89,11 @@ class ApacheHadoop(Scheduler):
 
             response = self._call_yarn_application()
             if self._is_any_job_running(response):
+                job.status = JobStatus.RUNNING
                 still_running.append(job)
             else:
                 update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                job.status = JobStatus.COMPLETED
                 self._reset_java_process_nice()
         self.running_jobs = still_running
 
@@ -116,9 +125,11 @@ class ApacheHadoop(Scheduler):
             job.queued_at = datetime.utcnow()
             self.running_jobs.append(job)
             update_job_status(job.id_, job.owner, JobStatus.RUNNING)
+            job.status = JobStatus.RUNNING
         except Exception as e:
             print(f"Error: {e}")
             update_job_status(job.id_, job.owner, JobStatus.ERROR)
+            job.status = JobStatus.ERROR
 
     def _call_yarn_jar(self, job: Job):
         """
@@ -163,11 +174,35 @@ class ApacheHadoop(Scheduler):
         Call the yarn application -list command to get the list of running jobs.
 
         """
-        response = self.master_node.send_command(
-            f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -list -appStates NEW,NEW_SAVING,SUBMITTED,ACCEPTED,RUNNING"
+        response = self._run_yarn_command(
+            "application -list -appStates NEW,NEW_SAVING,SUBMITTED,ACCEPTED,RUNNING"
         )
         print(response)
         return response
+
+    def _run_yarn_command(self, yarn_args: str) -> str:
+        exports = [f"export JAVA_HOME={JAVA_HOME}"]
+        hadoop_conf_dir = os.getenv("HADOOP_CONF_DIR")
+        yarn_conf_dir = os.getenv("YARN_CONF_DIR")
+        if hadoop_conf_dir:
+            exports.append(f"export HADOOP_CONF_DIR={hadoop_conf_dir}")
+        if yarn_conf_dir:
+            exports.append(f"export YARN_CONF_DIR={yarn_conf_dir}")
+        exports_cmd = " && ".join(exports)
+        base_cmd = f"{exports_cmd} && {HADOOP_HOME}/bin/yarn {yarn_args}"
+        login_shell_cmd = (
+            "source /etc/profile >/dev/null 2>&1 || true; "
+            "source ~/.bashrc >/dev/null 2>&1 || true; "
+            f"{base_cmd}"
+        )
+        wrapped_cmd = f"bash -lc {shlex.quote(login_shell_cmd)}"
+        yarn_cli_user = os.getenv("HADOOP_CLI_USER") or os.getenv("YARN_CLI_USER")
+        ssh_user = os.getenv("SSH_USER")
+        if yarn_cli_user and yarn_cli_user != ssh_user:
+            return self.master_node.send_command(
+                f"sudo -u {yarn_cli_user} {wrapped_cmd}"
+            )
+        return self.master_node.send_command(wrapped_cmd)
 
     def _extract_application_id(self, text: str) -> Optional[str]:
         match = re.search(r"(application_\d+_\d+)", text)
@@ -177,9 +212,7 @@ class ApacheHadoop(Scheduler):
 
     def _get_application_status(self, application_id: str) -> Tuple[Optional[str], Optional[str]]:
         try:
-            response = self.master_node.send_command(
-                f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/yarn application -status {application_id}"
-            )
+            response = self._run_yarn_command(f"application -status {application_id}")
         except Exception as exc:
             response = str(exc)
 
