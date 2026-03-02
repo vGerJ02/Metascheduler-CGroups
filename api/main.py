@@ -55,7 +55,15 @@ def main(
             help="The SSH user to use to connect to the cluster nodes.",
             envvar='SSH_USER'
         )] = 'metascheduler',
-        database_file: Annotated[Path, typer.Option(
+        ssh_user_sge: Annotated[str | None, typer.Option(
+            help="SSH user override for SGE scheduler connections.",
+            envvar='SSH_USER_SGE'
+        )] = None,
+        ssh_user_hadoop: Annotated[str | None, typer.Option(
+            help="SSH user override for Hadoop scheduler connections.",
+            envvar='SSH_USER_HADOOP'
+        )] = None,
+        database_file: Annotated[Path | None, typer.Option(
             help="The database file to store the job queue.",
             exists=False,
             file_okay=True,
@@ -73,6 +81,10 @@ def main(
     if ssh_key_file:
         os.environ['SSH_KEY_FILE'] = str(ssh_key_file)
     os.environ['SSH_USER'] = ssh_user
+    if ssh_user_sge:
+        os.environ['SSH_USER_SGE'] = ssh_user_sge
+    if ssh_user_hadoop:
+        os.environ['SSH_USER_HADOOP'] = ssh_user_hadoop
     AppConfig(config_file, database_file)
     uvicorn.run(app, host=host, port=port)
 

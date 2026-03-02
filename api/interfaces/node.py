@@ -2,6 +2,7 @@ import os
 import subprocess
 import threading
 from pathlib import Path
+from typing import Optional
 from icmplib import ping
 
 
@@ -32,7 +33,7 @@ class Node:
         '''
         return f'ID: {self.id_}, IP: {self.ip}, Port: {self.port}'
 
-    def send_command(self, command: str, critical=True) -> str:
+    def send_command(self, command: str, critical=True, ssh_user_override: Optional[str] = None) -> str:
         '''
         Send a command to the node.
         Args:
@@ -41,8 +42,9 @@ class Node:
         Returns:
             str: The response from the node.
         '''
+        effective_user = ssh_user_override or os.getenv("SSH_USER")
         try:
-            ssh_cmd = self._build_ssh_command(command)
+            ssh_cmd = self._build_ssh_command(command, ssh_user_override)
             
             result = subprocess.run(
                 ssh_cmd,
@@ -62,7 +64,7 @@ class Node:
         except subprocess.TimeoutExpired as e:
             error_message = (
                 f'SSH command timed out against {self.ip}:{self.port} as '
-                f'{os.getenv("SSH_USER")} while running "{command}"'
+                f'{effective_user} while running "{command}"'
             )
             if critical:
                 raise RuntimeError(error_message) from e
@@ -70,13 +72,13 @@ class Node:
         except Exception as e:
             error_message = (
                 f'SSH command failed against {self.ip}:{self.port} as '
-                f'{os.getenv("SSH_USER")} (key={os.getenv("SSH_KEY_FILE")}) while running "{command}": {e}'
+                f'{effective_user} (key={os.getenv("SSH_KEY_FILE")}) while running "{command}": {e}'
             )
             if critical:
                 raise RuntimeError(error_message) from e
             return error_message
 
-    def send_command_async(self, command: str, on_output=None, on_complete=None) -> None:
+    def send_command_async(self, command: str, on_output=None, on_complete=None, ssh_user_override: Optional[str] = None) -> None:
         '''
         Send a command to the node asynchronously.
         Args:
@@ -84,7 +86,7 @@ class Node:
         '''
         def run_command():
             try:
-                ssh_cmd = self._build_ssh_command(command)
+                ssh_cmd = self._build_ssh_command(command, ssh_user_override)
                 process = subprocess.Popen(
                     ssh_cmd,
                     stdout=subprocess.PIPE,
@@ -147,7 +149,7 @@ class Node:
         thread = threading.Thread(target=run_command)
         thread.start()
 
-    def _build_ssh_command(self, command: str) -> list[str]:
+    def _build_ssh_command(self, command: str, ssh_user_override: Optional[str] = None) -> list[str]:
         '''
         Build the SSH command as a list for subprocess.
         Args:
@@ -155,12 +157,12 @@ class Node:
         Returns:
             list[str]: The SSH command as a list.
         '''
-        ssh_user = os.getenv('SSH_USER')
+        ssh_user = ssh_user_override or os.getenv('SSH_USER')
         ssh_key_file = os.getenv('SSH_KEY_FILE')
         ssh_password = os.getenv('SSH_PASSWORD')
-        
+
         if not ssh_user:
-            raise ValueError('SSH_USER environment variable is not set')
+            raise ValueError('SSH user is not set (SSH_USER or scheduler-specific override)')
         
         # Build SSH command
         ssh_cmd = [
