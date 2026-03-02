@@ -29,6 +29,10 @@ class SGE(Scheduler):
     def __str__(self) -> str:
         return f"SGE Scheduler: {self.master_node.ip}:{self.master_node.port}"
 
+    @staticmethod
+    def _ssh_user() -> str | None:
+        return os.getenv("SSH_USER_SGE") or os.getenv("SSH_USER")
+
     def update_job_list(self, metascheduler_queue: List[Job]):
         """
         Update the internal job list.
@@ -89,7 +93,8 @@ class SGE(Scheduler):
 
         """
         qstat_xml = self.master_node.send_command(
-            f"export SGE_ROOT={SGE_ROOT} && {QSTAT} -xml"
+            f"export SGE_ROOT={SGE_ROOT} && {QSTAT} -xml",
+            ssh_user_override=self._ssh_user(),
         )
         return qstat_xml
 
@@ -140,7 +145,10 @@ class SGE(Scheduler):
             f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} "
             f"&& {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
         )
-        message = self.master_node.send_command(qsub_cmd)
+        message = self.master_node.send_command(
+            qsub_cmd,
+            ssh_user_override=self._ssh_user(),
+        )
         try:
             assigned_job_id = self._parse_qsub(message)
             return assigned_job_id
@@ -158,7 +166,11 @@ class SGE(Scheduler):
         qstat_detail_cmd = (
             f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && {QSTAT} -j {job.scheduler_job_id}'"
         )
-        details = self.master_node.send_command(qstat_detail_cmd, critical=False).strip()
+        details = self.master_node.send_command(
+            qstat_detail_cmd,
+            critical=False,
+            ssh_user_override=self._ssh_user(),
+        ).strip()
         print(
             f"[SGE] Job entered Eqw state: id={job.id_}, scheduler_job_id={job.scheduler_job_id}, "
             f"owner={job.owner}, name={job.name}, path={job.path}, options='{job.options}'"
@@ -185,7 +197,10 @@ class SGE(Scheduler):
 
         """
         node = self.master_node
-        ps_output = node.send_command(f"ps -eo pid,comm,nice,%cpu,%mem,ppid,user")
+        ps_output = node.send_command(
+            f"ps -eo pid,comm,nice,%cpu,%mem,ppid,user",
+            ssh_user_override=self._ssh_user(),
+        )
         job_info = self._get_job_info_from_ps(ps_output)
         if not job_info:
             return []
@@ -211,7 +226,10 @@ class SGE(Scheduler):
 
         current_user = getpass.getuser()
         for node in self.nodes:
-            ps_output = node.send_command("ps -eo pid,comm,nice,ppid,user")
+            ps_output = node.send_command(
+                "ps -eo pid,comm,nice,ppid,user",
+                ssh_user_override=self._ssh_user(),
+            )
             job_processes_pid_nice: Tuple[int, int, str] = (
                 self._get_job_processes_from_ps(ps_output)
             )
@@ -221,7 +239,9 @@ class SGE(Scheduler):
 
                 target_user = f"sudo -u {user}" if current_user != user else ""
                 node.send_command(
-                    f"{target_user} sh -c 'renice {new_nice} {pid}'", critical=False
+                    f"{target_user} sh -c 'renice {new_nice} {pid}'",
+                    critical=False,
+                    ssh_user_override=self._ssh_user(),
                 )
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int, user: str):
@@ -235,7 +255,9 @@ class SGE(Scheduler):
         for node in self.nodes:
 
             node.send_command(
-                f"{target_user} sh -c 'renice {new_nice} {job_pid}'", critical=False
+                f"{target_user} sh -c 'renice {new_nice} {job_pid}'",
+                critical=False,
+                ssh_user_override=self._ssh_user(),
             )
 
     def _get_job_info_from_ps(
@@ -288,7 +310,11 @@ class SGE(Scheduler):
             'echo "$pid $read_bytes $write_bytes $source"; '
             "done'"
         )
-        output = node.send_command(cmd, critical=False)
+        output = node.send_command(
+            cmd,
+            critical=False,
+            ssh_user_override=self._ssh_user(),
+        )
         io_by_pid = {}
         for line in output.splitlines():
             parts = line.split()
@@ -364,7 +390,10 @@ class SGE(Scheduler):
             "done; "
             'echo $ALL | tr " " "\\n" | sort -n | uniq\''
         )
-        output = self.master_node.send_command(cmd)
+        output = self.master_node.send_command(
+            cmd,
+            ssh_user_override=self._ssh_user(),
+        )
         return [
             pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()
         ]

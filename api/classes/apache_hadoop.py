@@ -33,6 +33,10 @@ class ApacheHadoop(Scheduler):
     def __str__(self) -> str:
         return f"Apache Hadoop Scheduler: {self.master_node.ip}:{self.master_node.port}"
 
+    @staticmethod
+    def _ssh_user() -> str | None:
+        return os.getenv("SSH_USER_HADOOP") or os.getenv("SSH_USER")
+
     def _init_hdfs_user_dir(self, user: str):
         """
         Initialize the necessary directories in HDFS
@@ -40,7 +44,10 @@ class ApacheHadoop(Scheduler):
         hdfs_user_dir = f"/user/{user}"
         check_cmd = f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/hdfs dfs -test -d {hdfs_user_dir}"
         mkdir_cmd = f"export JAVA_HOME={JAVA_HOME} && {HADOOP_HOME}/bin/hdfs dfs -mkdir -p {hdfs_user_dir}"
-        self.master_node.send_command(f"{check_cmd} || {mkdir_cmd}")
+        self.master_node.send_command(
+            f"{check_cmd} || {mkdir_cmd}",
+            ssh_user_override=self._ssh_user(),
+        )
 
     def update_job_list(self, metascheduler_queue: List[Job]):
         """
@@ -166,7 +173,8 @@ class ApacheHadoop(Scheduler):
 
         self.master_node.send_command_async(
             f"{target_user} sh -c '{env_cmd} && cd {job.pwd} && {HADOOP_HOME}/bin/yarn jar {job.path} {job.options}'",
-            on_output=on_output
+            on_output=on_output,
+            ssh_user_override=self._ssh_user(),
         )
 
     def _call_yarn_application(self) -> str:
@@ -200,9 +208,13 @@ class ApacheHadoop(Scheduler):
         ssh_user = os.getenv("SSH_USER")
         if yarn_cli_user and yarn_cli_user != ssh_user:
             return self.master_node.send_command(
-                f"sudo -u {yarn_cli_user} {wrapped_cmd}"
+                f"sudo -u {yarn_cli_user} {wrapped_cmd}",
+                ssh_user_override=self._ssh_user(),
             )
-        return self.master_node.send_command(wrapped_cmd)
+        return self.master_node.send_command(
+            wrapped_cmd,
+            ssh_user_override=self._ssh_user(),
+        )
 
     def _extract_application_id(self, text: str) -> Optional[str]:
         match = re.search(r"(application_\d+_\d+)", text)
@@ -234,7 +246,10 @@ class ApacheHadoop(Scheduler):
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
         for node in self.nodes:
-            ps_output = node.send_command(f"ps -eo pid,comm,nice")
+            ps_output = node.send_command(
+                f"ps -eo pid,comm,nice",
+                ssh_user_override=self._ssh_user(),
+            )
             print(ps_output)
             job_processes_pid_nice: Tuple[int, int] = self._get_job_processes_from_ps(
                 ps_output
@@ -242,7 +257,10 @@ class ApacheHadoop(Scheduler):
             for pid, actual_nice in job_processes_pid_nice:
                 if actual_nice == new_nice:
                     continue
-                node.send_command(f"sudo renice {new_nice} {pid}")
+                node.send_command(
+                    f"sudo renice {new_nice} {pid}",
+                    ssh_user_override=self._ssh_user(),
+                )
 
     def adjust_nice_of_job(self, job_pid: int, new_nice: int):
         """
@@ -250,7 +268,10 @@ class ApacheHadoop(Scheduler):
 
         """
         for node in self.nodes:
-            node.send_command(f"renice {new_nice} {job_pid}")
+            node.send_command(
+                f"renice {new_nice} {job_pid}",
+                ssh_user_override=self._ssh_user(),
+            )
 
     def get_all_jobs_info(
         self,
@@ -261,7 +282,10 @@ class ApacheHadoop(Scheduler):
         """
         all_jobs_info: List[Tuple[int, int, float, float, str, float, float]] = []
         for node in self.nodes:
-            ps_output = node.send_command(f"ps -eo pid,comm,nice,%cpu,%mem,user")
+            ps_output = node.send_command(
+                f"ps -eo pid,comm,nice,%cpu,%mem,user",
+                ssh_user_override=self._ssh_user(),
+            )
             job_info = self._get_job_info_from_ps(ps_output)
             if not job_info:
                 continue
@@ -329,7 +353,11 @@ class ApacheHadoop(Scheduler):
             'echo "$pid $read_bytes $write_bytes $source"; '
             "done'"
         )
-        output = node.send_command(cmd, critical=False)
+        output = node.send_command(
+            cmd,
+            critical=False,
+            ssh_user_override=self._ssh_user(),
+        )
         io_by_pid = {}
         for line in output.splitlines():
             parts = line.split()
@@ -362,14 +390,20 @@ class ApacheHadoop(Scheduler):
 
     def _reset_java_process_nice(self):
         for node in self.nodes:
-            ps_output = node.send_command(f"ps -eo pid,comm,nice")
+            ps_output = node.send_command(
+                f"ps -eo pid,comm,nice",
+                ssh_user_override=self._ssh_user(),
+            )
             job_processes_pid_nice: Tuple[int, int] = self._get_job_processes_from_ps(
                 ps_output
             )
             for pid, actual_nice in job_processes_pid_nice:
                 if actual_nice == 0:
                     continue
-                node.send_command(f"renice 0 {pid}")
+                node.send_command(
+                    f"renice 0 {pid}",
+                    ssh_user_override=self._ssh_user(),
+                )
 
     def get_hadoop_process_tree(self) -> list[str]:
         """
@@ -401,7 +435,10 @@ class ApacheHadoop(Scheduler):
             "done; "
             'echo $ALL | tr " " "\\n" | sort -n | uniq\''
         )
-        output = self.master_node.send_command(cmd)
+        output = self.master_node.send_command(
+            cmd,
+            ssh_user_override=self._ssh_user(),
+        )
         return [
             pid.strip() for pid in output.strip().splitlines() if pid.strip().isdigit()
         ]
