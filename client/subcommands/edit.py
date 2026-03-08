@@ -45,7 +45,8 @@ def job(job_id: Annotated[int, typer.Argument(help="The Job ID to edit.")],
             help="The name to set the job to.")] = None,
         path: Annotated[str, typer.Option(
             help="The path to set the job to.")] = None,
-        options: Annotated[str, typer.Option(help="The options to set the job to.")] = ''):
+        options: Annotated[str, typer.Option(help="The options to set the job to.")] = '',
+        qsub_options: Annotated[str, typer.Option(help="The SGE qsub options to set the job to.")] = ''):
     params = {
         "owner": os.getenv("USER")
     }
@@ -58,6 +59,8 @@ def job(job_id: Annotated[int, typer.Argument(help="The Job ID to edit.")],
         body["path"] = path
     if options:
         body["options"] = options
+    if qsub_options:
+        body["qsub_options"] = qsub_options
     if body == {}:
         print("No changes were made.")
         exit(0)

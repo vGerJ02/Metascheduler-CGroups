@@ -18,6 +18,7 @@ class PostJobModel(BaseModel):
     path: str
     scheduler_type: str
     options: str = ''
+    qsub_options: str = ''
     pwd: str = None
 
 
@@ -28,6 +29,7 @@ class PutJobModel(BaseModel):
     path: str = None
     #scheduler_type = None
     options: str = None
+    qsub_options: str | None = None
 
 
 @router.get('')
@@ -68,7 +70,8 @@ def read_job_metrics(job_id: int, owner: str):
 def create_job(job: PostJobModel):
     try:
         DatabaseHelper().insert_job(Job(name=job.name, queue=job.queue,
-                                        owner=job.owner, path=job.path, scheduler_type= job.scheduler_type, options=job.options, pwd=job.pwd))
+                                        owner=job.owner, path=job.path, scheduler_type= job.scheduler_type,
+                                        options=job.options, qsub_options=job.qsub_options, pwd=job.pwd))
         return {'status': 'success', 'message': 'Job created successfully ✅'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -83,8 +86,9 @@ def update_job(job_id: int, owner: str, job: PutJobModel):
     try:
         DatabaseHelper().update_job(job_id, owner, Job(name=job.name or stored_job.name, queue=job.queue or stored_job.queue,
                                                        status=job.status or stored_job.status, path=job.path or stored_job.path,
-                                                       scheduler_type=job.scheduler_type or stored_job,
-                                                       options=job.options or stored_job.options))
+                                                        scheduler_type=job.scheduler_type or stored_job,
+                                                       options=job.options or stored_job.options,
+                                                       qsub_options=job.qsub_options if job.qsub_options is not None else stored_job.qsub_options))
         return {'status': 'success', 'message': 'Job updated successfully ✅'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -98,7 +102,8 @@ def update_job_status(job_id: int, owner: str, status: JobStatus):
     try:
         DatabaseHelper().update_job(job_id, owner, Job(name=stored_job.name, queue=stored_job.queue,
                                                        status=status, path=stored_job.path,
-                                                       options=stored_job.options, scheduler_type=stored_job.scheduler_type))
+                                                       options=stored_job.options, qsub_options=stored_job.qsub_options,
+                                                       scheduler_type=stored_job.scheduler_type))
         return {'status': 'success', 'message': 'Job updated successfully ✅'}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

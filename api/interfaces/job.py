@@ -15,7 +15,7 @@ class Job:
     def __init__(self, id_: int = None, queue: int = -1, name: str = None,
                  created_at: datetime = None, owner: str = None,
                  status: JobStatus = JobStatus.TO_BE_QUEUED, path: Path = None, scheduler_type: str = '',
-                 options: str = '', scheduler_job_id: int = None, scheduler_job_ref: str = None,
+                 options: str = '', qsub_options: str = '', scheduler_job_id: int = None, scheduler_job_ref: str = None,
                  pwd: Path = None, quiet: bool = False):
         self.id_ = id_
         self.queue = queue
@@ -28,6 +28,7 @@ class Job:
             self.status = JobStatus(status)
         self.path = path
         self.options = options
+        self.qsub_options = qsub_options
         self.scheduler_job_id = scheduler_job_id
         self.scheduler_job_ref = scheduler_job_ref
         # self.pwd = "/home/metascheduler"
@@ -39,7 +40,7 @@ class Job:
         return f"Job(id={self.id_}, queue={self.queue}, name='{self.name}', " \
                f"created_at='{self.created_at}', owner='{self.owner}', " \
                f"status='{self.status.name}', path='{self.path}', " \
-               f"scheduler_type='{self.scheduler_type}', options='{self.options}', " \
+               f"scheduler_type='{self.scheduler_type}', options='{self.options}', qsub_options='{self.qsub_options}', " \
                f"scheduler_job_id={self.scheduler_job_id}, scheduler_job_ref='{self.scheduler_job_ref}', " \
                f"pwd='{self.pwd}')"
 

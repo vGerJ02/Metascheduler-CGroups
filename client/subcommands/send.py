@@ -37,6 +37,7 @@ class BenchmarkJob:
     path: str
     scheduler_type: str
     options: str = ""
+    qsub_options: str = ""
 
 
 def _split_csv(value: str) -> List[str]:
@@ -52,6 +53,9 @@ def job(
         str, typer.Option(help="Scheduler type: S (SGE), H (Hadoop).")
     ],
     options: Annotated[str, typer.Option(help="Job options.")] = "",
+    qsub_options: Annotated[
+        str, typer.Option(help="SGE qsub options (e.g. -v KEY=VAL -pe mpi 64).")
+    ] = "",
     hadoop_quiet: Annotated[
         bool, typer.Option(help="Reduce Hadoop client logging for this job.")
     ] = False,
@@ -64,12 +68,17 @@ def job(
             print(
                 "[bold yellow]Warning:[/bold yellow] --hadoop-quiet ignored for non-Hadoop jobs."
             )
+    if qsub_options and scheduler_code != "S":
+        print(
+            "[bold yellow]Warning:[/bold yellow] --qsub-options ignored for non-SGE jobs."
+        )
     request_data = {
         "name": name,
         "queue": queue,
         "owner": os.getenv("USER"),
         "path": path,
         "options": options,
+        "qsub_options": qsub_options if scheduler_code == "S" else "",
         "pwd": os.getcwd(),
         "scheduler_type": scheduler_code,
     }
@@ -107,6 +116,10 @@ def benchmarks(
     delay: Annotated[
         float, typer.Option(help="Delay between submissions in seconds.")
     ] = 1.0,
+    sge_qsub_options: Annotated[
+        str,
+        typer.Option(help="SGE qsub options for benchmark scripts (e.g. -v KEY=VAL -pe mpi 64)."),
+    ] = "",
     hadoop_quiet: Annotated[
         bool, typer.Option(help="Reduce Hadoop client logging for benchmark jobs.")
     ] = False,
@@ -133,6 +146,7 @@ def benchmarks(
                 queue=sge_queue,
                 path=script,
                 scheduler_type="S",
+                qsub_options=sge_qsub_options,
             )
         )
     for index, input_file in enumerate(hadoop_input_list, start=1):
@@ -160,6 +174,7 @@ def benchmarks(
             "owner": owner,
             "path": bench_job.path,
             "options": bench_job.options,
+            "qsub_options": bench_job.qsub_options,
             "pwd": os.getcwd(),
             "scheduler_type": bench_job.scheduler_type,
         }

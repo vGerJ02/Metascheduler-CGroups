@@ -91,6 +91,7 @@ class DatabaseHelper(metaclass=Singleton):
             status TEXT NOT NULL,
             path TEXT NOT NULL,
             options TEXT NOT NULL,
+            qsub_options TEXT NOT NULL DEFAULT '',
             scheduler_job_id INTEGER,
             pwd TEXT,
             scheduler_type TEXT NOT NULL,
@@ -118,6 +119,10 @@ class DatabaseHelper(metaclass=Singleton):
         '''Ensure jobs has columns needed for newer scheduler fields.'''
         self._cur.execute('PRAGMA table_info(jobs)')
         columns = {row[1] for row in self._cur.fetchall()}
+        if 'qsub_options' not in columns:
+            self._cur.execute(
+                "ALTER TABLE jobs ADD COLUMN qsub_options TEXT NOT NULL DEFAULT ''"
+            )
         if 'scheduler_job_ref' not in columns:
             self._cur.execute(
                 'ALTER TABLE jobs ADD COLUMN scheduler_job_ref TEXT'
@@ -164,9 +169,9 @@ class DatabaseHelper(metaclass=Singleton):
         try:
             self._refresh_connection()
             self._cur.execute(
-                'INSERT INTO jobs (queue_id, name, created_at, owner, status, path, options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+                'INSERT INTO jobs (queue_id, name, created_at, owner, status, path, options, qsub_options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
                 (job.queue, job.name, job.created_at, job.owner,
-                 job.status.value, str(job.path), job.options, str(job.pwd), job.scheduler_type, job.scheduler_job_ref))
+                 job.status.value, str(job.path), job.options, job.qsub_options, str(job.pwd), job.scheduler_type, job.scheduler_job_ref))
 
             self._con.commit()
         except sqlite3.IntegrityError as e:
@@ -187,7 +192,10 @@ class DatabaseHelper(metaclass=Singleton):
         '''Gets all jobs from the database that match the given criteria.'''
 
         self._refresh_connection()
-        query = 'SELECT * FROM jobs'
+        query = (
+            'SELECT id, queue_id, name, created_at, owner, status, path, options, '
+            'scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options FROM jobs'
+        )
         params = []
         if owner and owner != 'root':
             query += ' WHERE owner = ?'
@@ -211,7 +219,6 @@ class DatabaseHelper(metaclass=Singleton):
         rows = self._cur.fetchall()
         jobs = []
         for row in rows:
-            scheduler_job_ref = row[11] if len(row) > 11 else None
             job = Job(
                 id_=row[0],
                 queue=row[1],
@@ -222,9 +229,10 @@ class DatabaseHelper(metaclass=Singleton):
                 path=row[6],
                 options=row[7],
                 scheduler_job_id=row[8],
-                scheduler_job_ref=scheduler_job_ref,
+                scheduler_job_ref=row[11],
                 pwd=row[9],
-                scheduler_type=row[10]
+                scheduler_type=row[10],
+                qsub_options=row[12],
             )
             jobs.append(job)
         return jobs
@@ -234,11 +242,14 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._refresh_connection()
         self._cur.execute(
-            'SELECT * FROM jobs WHERE id = ? AND owner = ?', (job_id, owner,))
+            'SELECT id, queue_id, name, created_at, owner, status, path, options, '
+            'scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options '
+            'FROM jobs WHERE id = ? AND owner = ?',
+            (job_id, owner,)
+        )
         row = self._cur.fetchone()
         if row is None:
             raise Exception('Job not found')
-        scheduler_job_ref = row[11] if len(row) > 11 else None
         return Job(
                 id_=row[0],
                 queue=row[1],
@@ -249,9 +260,10 @@ class DatabaseHelper(metaclass=Singleton):
                 path=row[6],
                 options=row[7],
                 scheduler_job_id=row[8],
-                scheduler_job_ref=scheduler_job_ref,
+                scheduler_job_ref=row[11],
                 pwd=row[9],
-                scheduler_type=row[10]
+                scheduler_type=row[10],
+                qsub_options=row[12],
             )
 
     def update_job(self, job_id: int, owner: str, job: Job) -> None:
@@ -259,7 +271,9 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._refresh_connection()
         self._cur.execute(
-            'UPDATE jobs SET name = ?, queue_id = ?, status = ?, path = ?, options = ?, scheduler_type = ? WHERE id = ? AND owner = ?', (job.name, job.queue, job.status.value, str(job.path), job.options, job.scheduler_type, job_id, owner))
+            'UPDATE jobs SET name = ?, queue_id = ?, status = ?, path = ?, options = ?, qsub_options = ?, scheduler_type = ? WHERE id = ? AND owner = ?',
+            (job.name, job.queue, job.status.value, str(job.path), job.options, job.qsub_options, job.scheduler_type, job_id, owner)
+        )
         self._con.commit()
 
     def delete_job(self, job_id: int, owner: str) -> None:

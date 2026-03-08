@@ -140,9 +140,11 @@ class SGE(Scheduler):
         """
         current_user = getpass.getuser()
         target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
+        qsub_options = job.qsub_options.strip() if getattr(job, "qsub_options", "") else ""
+        qsub_options_segment = f"{qsub_options} " if qsub_options else ""
         qsub_cmd = (
             f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && cd {job.pwd} "
-            f"&& {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {job.path} {job.options}'"
+            f"&& {QSUB} -N {job.name} -o {job.pwd} -e {job.pwd} {qsub_options_segment}{job.path} {job.options}'"
         )
         message = self.master_node.send_command(
             qsub_cmd,
@@ -172,7 +174,8 @@ class SGE(Scheduler):
         ).strip()
         print(
             f"[SGE] Job entered Eqw state: id={job.id_}, scheduler_job_id={job.scheduler_job_id}, "
-            f"owner={job.owner}, name={job.name}, path={job.path}, options='{job.options}'"
+            f"owner={job.owner}, name={job.name}, path={job.path}, "
+            f"qsub_options='{job.qsub_options}', options='{job.options}'"
         )
         if details:
             print(f"[SGE] qstat -j details for {job.scheduler_job_id}:\n{details}")
