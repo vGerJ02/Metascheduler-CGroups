@@ -84,11 +84,28 @@ class SGE(Scheduler):
         for job in pending_sge_jobs:
             accounted_outcome = self._accounted_job_outcome(job)
             if accounted_outcome == JobStatus.COMPLETED:
+                print(
+                    f"[SGE] Reconciled finished job via qacct: id={job.id_}, "
+                    f"scheduler_job_id={job.scheduler_job_id}, outcome=COMPLETED"
+                )
                 update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
                 job.status = JobStatus.COMPLETED
             elif accounted_outcome == JobStatus.ERROR:
+                print(
+                    f"[SGE] Reconciled finished job via qacct: id={job.id_}, "
+                    f"scheduler_job_id={job.scheduler_job_id}, outcome=ERROR"
+                )
                 update_job_status(job.id_, job.owner, JobStatus.ERROR)
                 job.status = JobStatus.ERROR
+            else:
+                # If qstat does not currently report the job and qacct has no final
+                # record yet, keep tracking it as active so live metrics collection
+                # still has a chance to sample process usage.
+                if job not in actual_jobs:
+                    actual_jobs.append(job)
+                if job.status != JobStatus.RUNNING:
+                    update_job_status(job.id_, job.owner, JobStatus.RUNNING)
+                    job.status = JobStatus.RUNNING
 
         ended_jobs_id = [
             job_id

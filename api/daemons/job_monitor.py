@@ -1,4 +1,5 @@
 import threading
+import traceback
 from time import sleep
 from typing import List
 from datetime import datetime
@@ -47,7 +48,11 @@ class JobMonitorDaemon(metaclass=Singleton):
         log('Starting...')
         self.config = AppConfig()
         while not self._stop_event.is_set():
-            self._execute_cycle()
+            try:
+                self._execute_cycle()
+            except Exception as exc:
+                log(f'Unhandled daemon cycle error: {exc}')
+                traceback.print_exc()
             sleep(CYCLE_TIME)
 
     def stop(self):
@@ -57,8 +62,8 @@ class JobMonitorDaemon(metaclass=Singleton):
     def _execute_cycle(self):
         self._update_policy_if_needed()
         self._update_jobs_queue()
-        self._collect_metrics()
         self._update_scheduler_queues()
+        self._collect_metrics()
         self._make_decisions()
 
     def _update_policy_if_needed(self):
