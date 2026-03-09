@@ -198,27 +198,31 @@ class SGE(Scheduler):
         Get the information of all running jobs
 
         """
-        node = self.master_node
-        ps_output = node.send_command(
-            f"ps -eo pid,comm,nice,%cpu,%mem,ppid,user",
-            ssh_user_override=self._ssh_user(),
-        )
-        job_info = self._get_job_info_from_ps(ps_output)
-        if not job_info:
-            return []
-        io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
-        return [
-            (
-                pid,
-                nice,
-                cpu,
-                mem,
-                user,
-                io_by_pid.get(pid, (0.0, 0.0))[0],
-                io_by_pid.get(pid, (0.0, 0.0))[1],
+        all_jobs_info: List[Tuple[int, int, float, float, str, float, float]] = []
+        for node in self.nodes:
+            ps_output = node.send_command(
+                f"ps -eo pid,comm,nice,%cpu,%mem,ppid,user",
+                ssh_user_override=self._ssh_user(),
             )
-            for pid, nice, cpu, mem, user in job_info
-        ]
+            job_info = self._get_job_info_from_ps(ps_output)
+            if not job_info:
+                continue
+            io_by_pid = self._get_io_by_pid(node, [info[0] for info in job_info])
+            all_jobs_info.extend(
+                [
+                    (
+                        pid,
+                        nice,
+                        cpu,
+                        mem,
+                        user,
+                        io_by_pid.get(pid, (0.0, 0.0))[0],
+                        io_by_pid.get(pid, (0.0, 0.0))[1],
+                    )
+                    for pid, nice, cpu, mem, user in job_info
+                ]
+            )
+        return all_jobs_info
 
     def adjust_nice_of_all_jobs(self, new_nice: int):
         """
