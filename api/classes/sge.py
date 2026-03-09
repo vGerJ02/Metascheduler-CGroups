@@ -1,6 +1,7 @@
 import os
 import time
 import getpass
+import re
 from typing import List, Tuple
 from api.constants.job_status import JobStatus
 from api.interfaces.job import Job
@@ -12,6 +13,7 @@ import xml.etree.ElementTree as ET
 SGE_ROOT = '/usr/local/sge/'
 QSTAT = SGE_ROOT + 'bin/lx-amd64/qstat'
 QSUB = SGE_ROOT + 'bin/lx-amd64/qsub'
+QACCT = SGE_ROOT + 'bin/lx-amd64/qacct'
 
 class SGE(Scheduler):
     """
@@ -41,6 +43,7 @@ class SGE(Scheduler):
         """
         qstat = self._call_qstat()
         jobs_id_state: Tuple[str, int] = self._parse_qstat(qstat)
+        current_ids = {job_id for job_id, _ in jobs_id_state}
         actual_jobs: List[Job] = []
         for job_id_state in jobs_id_state:
             job = next(
@@ -54,17 +57,39 @@ class SGE(Scheduler):
             if job is None:
                 continue
             actual_jobs.append(job)
-            if job_id_state[1] == "qw":
-                update_job_status(job.id_, job.owner, JobStatus.QUEUED)
-                job.status = JobStatus.QUEUED
-            if job_id_state[1] == "Eqw":
+            state = str(job_id_state[1])
+            if state == "Eqw" or "E" in state:
                 update_job_status(job.id_, job.owner, JobStatus.ERROR)
                 job.status = JobStatus.ERROR
                 self._log_eqw_details(job)
                 actual_jobs.remove(job)
-            if job_id_state[1] == "r":
+                continue
+            if "r" in state or "t" in state:
                 update_job_status(job.id_, job.owner, JobStatus.RUNNING)
                 job.status = JobStatus.RUNNING
+                continue
+            if "qw" in state:
+                update_job_status(job.id_, job.owner, JobStatus.QUEUED)
+                job.status = JobStatus.QUEUED
+
+        # Reconcile jobs that disappeared from qstat before being observed as running.
+        # This happens for short jobs and would otherwise leave them stuck in QUEUED.
+        pending_sge_jobs = [
+            job for job in metascheduler_queue
+            if getattr(job, "scheduler_type", "") == "S"
+            and job.scheduler_job_id
+            and job.status in {JobStatus.QUEUED, JobStatus.RUNNING}
+            and job.scheduler_job_id not in current_ids
+        ]
+        for job in pending_sge_jobs:
+            accounted_outcome = self._accounted_job_outcome(job)
+            if accounted_outcome == JobStatus.COMPLETED:
+                update_job_status(job.id_, job.owner, JobStatus.COMPLETED)
+                job.status = JobStatus.COMPLETED
+            elif accounted_outcome == JobStatus.ERROR:
+                update_job_status(job.id_, job.owner, JobStatus.ERROR)
+                job.status = JobStatus.ERROR
+
         ended_jobs_id = [
             job_id
             for job_id in self._last_job_list_id
@@ -120,6 +145,8 @@ class SGE(Scheduler):
             sge_job_id = self._call_qsub(job)
             set_job_scheduler_job_id(job.id_, job.owner, sge_job_id)
             update_job_status(job.id_, job.owner, JobStatus.QUEUED)
+            job.scheduler_job_id = sge_job_id
+            job.status = JobStatus.QUEUED
             self.running_jobs.append(job)
         except Exception as e:
             print(
@@ -191,6 +218,46 @@ class SGE(Scheduler):
 
         """
         return int(qsub_output.split()[2])
+
+    def _call_qacct_for_job(self, job: Job) -> str:
+        current_user = getpass.getuser()
+        target_user = f"sudo -u {job.owner}" if current_user != job.owner else ""
+        qacct_cmd = (
+            f"{target_user} sh -c 'export SGE_ROOT={SGE_ROOT} && {QACCT} -j {job.scheduler_job_id}'"
+        )
+        return self.master_node.send_command(
+            qacct_cmd,
+            critical=False,
+            ssh_user_override=self._ssh_user(),
+        )
+
+    @staticmethod
+    def _extract_int_field(text: str, field: str) -> int | None:
+        match = re.search(rf"^{field}\s+(.+)$", text, re.MULTILINE)
+        if not match:
+            return None
+        value = match.group(1).strip().split()[0]
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    def _accounted_job_outcome(self, job: Job) -> JobStatus | None:
+        qacct_output = self._call_qacct_for_job(job)
+        if not qacct_output:
+            return None
+        lowered = qacct_output.lower()
+        if "not found" in lowered or "error:" in lowered and "job" in lowered and "not" in lowered:
+            return None
+
+        failed = self._extract_int_field(qacct_output, "failed")
+        exit_status = self._extract_int_field(qacct_output, "exit_status")
+
+        if failed is None and exit_status is None:
+            return None
+        if (failed is not None and failed != 0) or (exit_status is not None and exit_status != 0):
+            return JobStatus.ERROR
+        return JobStatus.COMPLETED
 
     def get_all_jobs_info(
         self,
