@@ -1,4 +1,5 @@
 import time
+import threading
 from copy import deepcopy
 from api.classes.apache_hadoop import ApacheHadoop
 from api.classes.sge import SGE
@@ -71,19 +72,31 @@ class CgroupsScheduler(Scheduler):
         if hasattr(job, 'scheduler_type'):
             if job.scheduler_type == "S":
                 self.sge.queue_job(job)
-                time.sleep(0.5)
-                sge_job_pids = self.sge.get_sge_process_tree()
-                self.assign_pids_to_cgroup(sge_job_pids, "sge", )
+                self._assign_scheduler_pids_async("sge")
 
             elif job.scheduler_type == "H":
                 self.hadoop.queue_job(job)
-                time.sleep(0.5)
-                hadoop_job_pids = self.hadoop.get_hadoop_process_tree()
-                self.assign_pids_to_cgroup(hadoop_job_pids, "hadoop", )
+                self._assign_scheduler_pids_async("hadoop")
             else:
                 raise ValueError("Unknown scheduler type")
         else:
             raise AttributeError("Job object must have a 'scheduler_type' attribute")
+
+    def _assign_scheduler_pids_async(self, scheduler_type: str):
+        def _worker():
+            try:
+                # Give the scheduler a brief moment to spawn worker processes.
+                time.sleep(0.5)
+                if scheduler_type == "sge":
+                    pids = self.sge.get_sge_process_tree()
+                else:
+                    pids = self.hadoop.get_hadoop_process_tree()
+                self.assign_pids_to_cgroup(pids, scheduler_type)
+            except Exception as exc:
+                print(f"[CGroups] Failed assigning {scheduler_type} pids to cgroup: {exc}")
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
 
     def update_job_list(self, metascheduler_queue: List[Job]):
         """Update the job list for both schedulers based on the metascheduler queue."""
@@ -441,3 +454,4 @@ class CgroupsScheduler(Scheduler):
         for node in self.nodes:
             node.send_command(cmd, critical=False)
         print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
+
