@@ -16,7 +16,9 @@ class Job:
                  created_at: datetime = None, owner: str = None,
                  status: JobStatus = JobStatus.TO_BE_QUEUED, path: Path = None, scheduler_type: str = '',
                  options: str = '', qsub_options: str = '', scheduler_job_id: int = None, scheduler_job_ref: str = None,
-                 pwd: Path = None, quiet: bool = False):
+                 pwd: Path = None, quiet: bool = False,
+                 started_at: datetime = None, completed_at: datetime = None,
+                 execution_time_seconds: float = None):
         self.id_ = id_
         self.queue = queue
         self.name = name
@@ -31,6 +33,9 @@ class Job:
         self.qsub_options = qsub_options
         self.scheduler_job_id = scheduler_job_id
         self.scheduler_job_ref = scheduler_job_ref
+        self.started_at = started_at
+        self.completed_at = completed_at
+        self.execution_time_seconds = execution_time_seconds
         # self.pwd = "/home/metascheduler"
         self.pwd = str(pwd) if pwd else self._default_pwd()
         self.scheduler_type = self._validate_scheduler_code(scheduler_type)
@@ -42,7 +47,8 @@ class Job:
                f"status='{self.status.name}', path='{self.path}', " \
                f"scheduler_type='{self.scheduler_type}', options='{self.options}', qsub_options='{self.qsub_options}', " \
                f"scheduler_job_id={self.scheduler_job_id}, scheduler_job_ref='{self.scheduler_job_ref}', " \
-               f"pwd='{self.pwd}')"
+               f"pwd='{self.pwd}', started_at='{self.started_at}', completed_at='{self.completed_at}', " \
+               f"execution_time_seconds='{self.execution_time_seconds}')"
 
     @staticmethod
     def _default_pwd() -> str:
