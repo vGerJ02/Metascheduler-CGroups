@@ -41,6 +41,9 @@ class JobResponse:
     qsub_options: str = ""
     scheduler_job_ref: Optional[str] = None
     quiet: Optional[bool] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    execution_time_seconds: Optional[float] = None
 
 
 _JOB_RESPONSE_FIELDS = {field_.name for field_ in fields(JobResponse)}
@@ -220,13 +223,19 @@ def jobs(status: Annotated[JobStatus, typer.Option(help="Job status.", case_sens
     table.add_column("Options", style="dim")
     table.add_column("Qsub Options", style="dim")
     table.add_column("Scheduler Job ID", style="dim")
+    table.add_column("Started At", style="dim")
+    table.add_column("Completed At", style="dim")
+    table.add_column("Exec Time (s)", style="dim")
     table.add_column("PWD", style="dim")
     table.add_column("Type", style="dim")
 
     for job in jobs:
         scheduler_name = SchedulerType.name_from_code(job.scheduler_type)
         table.add_row(str(job.id_), str(job.queue), job.name, str(job.created_at),
-                      job.owner, job.status, job.path, job.options, job.qsub_options, str(job.scheduler_job_id), job.pwd,
+                      job.owner, job.status, job.path, job.options, job.qsub_options,
+                      str(job.scheduler_job_id), str(job.started_at), str(job.completed_at),
+                      f"{job.execution_time_seconds:.2f}" if isinstance(job.execution_time_seconds, (int, float)) else "-",
+                      job.pwd,
                       scheduler_name)
 
     panel = Panel(table, border_style="green")
@@ -250,6 +259,9 @@ def job(id: Annotated[int, typer.Argument(help="The Job ID.")]):
     table.add_column("Options", style="dim")
     table.add_column("Qsub Options", style="dim")
     table.add_column("Scheduler Job ID", style="dim")
+    table.add_column("Started At", style="dim")
+    table.add_column("Completed At", style="dim")
+    table.add_column("Exec Time (s)", style="dim")
     table.add_column("PWD", style="dim")
     table.add_column("Type", style="dim")
 
@@ -257,7 +269,9 @@ def job(id: Annotated[int, typer.Argument(help="The Job ID.")]):
 
     table.add_row(str(job.id_), str(job.queue), job.name, str(job.created_at),
                   job.owner, job.status, job.path, job.options, job.qsub_options,
-                  str(job.scheduler_job_id), job.pwd, scheduler_name)
+                  str(job.scheduler_job_id), str(job.started_at), str(job.completed_at),
+                  f"{job.execution_time_seconds:.2f}" if isinstance(job.execution_time_seconds, (int, float)) else "-",
+                  job.pwd, scheduler_name)
 
     panel = Panel(table, border_style="green")
     print(panel)

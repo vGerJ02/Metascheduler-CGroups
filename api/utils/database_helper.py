@@ -87,6 +87,9 @@ class DatabaseHelper(metaclass=Singleton):
             queue_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             created_at DATETIME NOT NULL,
+            started_at DATETIME,
+            completed_at DATETIME,
+            execution_time_seconds REAL,
             owner TEXT NOT NULL,
             status TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -119,6 +122,12 @@ class DatabaseHelper(metaclass=Singleton):
         '''Ensure jobs has columns needed for newer scheduler fields.'''
         self._cur.execute('PRAGMA table_info(jobs)')
         columns = {row[1] for row in self._cur.fetchall()}
+        if 'started_at' not in columns:
+            self._cur.execute('ALTER TABLE jobs ADD COLUMN started_at DATETIME')
+        if 'completed_at' not in columns:
+            self._cur.execute('ALTER TABLE jobs ADD COLUMN completed_at DATETIME')
+        if 'execution_time_seconds' not in columns:
+            self._cur.execute('ALTER TABLE jobs ADD COLUMN execution_time_seconds REAL')
         if 'qsub_options' not in columns:
             self._cur.execute(
                 "ALTER TABLE jobs ADD COLUMN qsub_options TEXT NOT NULL DEFAULT ''"
@@ -169,7 +178,7 @@ class DatabaseHelper(metaclass=Singleton):
         try:
             self._refresh_connection()
             self._cur.execute(
-                'INSERT INTO jobs (queue_id, name, created_at, owner, status, path, options, qsub_options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+                'INSERT INTO jobs (queue_id, name, created_at, started_at, completed_at, execution_time_seconds, owner, status, path, options, qsub_options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
                 (job.queue, job.name, job.created_at, job.owner,
                  job.status.value, str(job.path), job.options, job.qsub_options, str(job.pwd), job.scheduler_type, job.scheduler_job_ref))
 
@@ -193,8 +202,8 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._refresh_connection()
         query = (
-            'SELECT id, queue_id, name, created_at, owner, status, path, options, '
-            'scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options FROM jobs'
+            'SELECT id, queue_id, name, created_at, started_at, completed_at, execution_time_seconds, '
+            'owner, status, path, options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options FROM jobs'
         )
         params = []
         if owner and owner != 'root':
@@ -224,15 +233,18 @@ class DatabaseHelper(metaclass=Singleton):
                 queue=row[1],
                 name=row[2],
                 created_at=row[3],
-                owner=row[4],
-                status=row[5],
-                path=row[6],
-                options=row[7],
-                scheduler_job_id=row[8],
-                scheduler_job_ref=row[11],
-                pwd=row[9],
-                scheduler_type=row[10],
-                qsub_options=row[12],
+                started_at=row[4],
+                completed_at=row[5],
+                execution_time_seconds=row[6],
+                owner=row[7],
+                status=row[8],
+                path=row[9],
+                options=row[10],
+                scheduler_job_id=row[11],
+                scheduler_job_ref=row[14],
+                pwd=row[12],
+                scheduler_type=row[13],
+                qsub_options=row[15],
             )
             jobs.append(job)
         return jobs
@@ -242,8 +254,8 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._refresh_connection()
         self._cur.execute(
-            'SELECT id, queue_id, name, created_at, owner, status, path, options, '
-            'scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options '
+            'SELECT id, queue_id, name, created_at, started_at, completed_at, execution_time_seconds, '
+            'owner, status, path, options, scheduler_job_id, pwd, scheduler_type, scheduler_job_ref, qsub_options '
             'FROM jobs WHERE id = ? AND owner = ?',
             (job_id, owner,)
         )
@@ -255,15 +267,18 @@ class DatabaseHelper(metaclass=Singleton):
                 queue=row[1],
                 name=row[2],
                 created_at=row[3],
-                owner=row[4],
-                status=row[5],
-                path=row[6],
-                options=row[7],
-                scheduler_job_id=row[8],
-                scheduler_job_ref=row[11],
-                pwd=row[9],
-                scheduler_type=row[10],
-                qsub_options=row[12],
+                started_at=row[4],
+                completed_at=row[5],
+                execution_time_seconds=row[6],
+                owner=row[7],
+                status=row[8],
+                path=row[9],
+                options=row[10],
+                scheduler_job_id=row[11],
+                scheduler_job_ref=row[14],
+                pwd=row[12],
+                scheduler_type=row[13],
+                qsub_options=row[15],
             )
 
     def update_job(self, job_id: int, owner: str, job: Job) -> None:
@@ -273,6 +288,40 @@ class DatabaseHelper(metaclass=Singleton):
         self._cur.execute(
             'UPDATE jobs SET name = ?, queue_id = ?, status = ?, path = ?, options = ?, qsub_options = ?, scheduler_type = ? WHERE id = ? AND owner = ?',
             (job.name, job.queue, job.status.value, str(job.path), job.options, job.qsub_options, job.scheduler_type, job_id, owner)
+        )
+        self._con.commit()
+
+    def update_job_status(self, job_id: int, owner: str, status: JobStatus) -> None:
+        '''Update status and execution timestamps of a job.'''
+        stored_job = self.get_job(job_id, owner)
+        now = datetime.utcnow()
+        started_at = stored_job.started_at
+        completed_at = stored_job.completed_at
+        execution_time_seconds = stored_job.execution_time_seconds
+
+        if status == JobStatus.RUNNING and not started_at:
+            started_at = now
+
+        if status in {JobStatus.COMPLETED, JobStatus.ERROR}:
+            completed_at = now
+            start_ref = started_at or stored_job.created_at
+            try:
+                start_dt = datetime.fromisoformat(str(start_ref)) if not isinstance(start_ref, datetime) else start_ref
+            except ValueError:
+                start_dt = now
+            execution_time_seconds = max(0.0, (completed_at - start_dt).total_seconds())
+
+        self._refresh_connection()
+        self._cur.execute(
+            'UPDATE jobs SET status = ?, started_at = ?, completed_at = ?, execution_time_seconds = ? WHERE id = ? AND owner = ?',
+            (
+                status.value,
+                started_at.isoformat() if isinstance(started_at, datetime) else started_at,
+                completed_at.isoformat() if isinstance(completed_at, datetime) else completed_at,
+                execution_time_seconds,
+                job_id,
+                owner,
+            )
         )
         self._con.commit()
 
