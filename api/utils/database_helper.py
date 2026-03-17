@@ -70,6 +70,7 @@ class DatabaseHelper(metaclass=Singleton):
         self._create_queues_table()
         self._create_jobs_table()
         self._create_job_metrics_table()
+        self._create_job_node_metrics_table()
 
     def _create_queues_table(self) -> None:
         '''Creates the queues table in the database.'''
@@ -118,6 +119,21 @@ class DatabaseHelper(metaclass=Singleton):
         self._con.commit()
         self._ensure_job_metrics_columns()
 
+    def _create_job_node_metrics_table(self) -> None:
+        '''Creates the job node metrics table in the database.'''
+
+        self._cur.execute('''CREATE TABLE IF NOT EXISTS job_node_metrics
+            (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            node_ip TEXT NOT NULL,
+            collected_at DATETIME NOT NULL,
+            cpu_usage REAL NOT NULL,
+            ram_usage REAL NOT NULL,
+            disk_read_bytes REAL NOT NULL DEFAULT 0,
+            disk_write_bytes REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE)''')
+        self._con.commit()
+
     def _ensure_jobs_columns(self) -> None:
         '''Ensure jobs has columns needed for newer scheduler fields.'''
         self._cur.execute('PRAGMA table_info(jobs)')
@@ -164,6 +180,7 @@ class DatabaseHelper(metaclass=Singleton):
 
         self._refresh_connection()
         self._cur.execute('DROP TABLE IF EXISTS job_metrics')
+        self._cur.execute('DROP TABLE IF EXISTS job_node_metrics')
         self._cur.execute('DROP TABLE IF EXISTS jobs')
         self._cur.execute('DROP TABLE IF EXISTS queues')
         self._con.commit()
@@ -393,5 +410,56 @@ class DatabaseHelper(metaclass=Singleton):
                 'ram_usage': row[4],
                 'disk_read_bytes': row[5],
                 'disk_write_bytes': row[6],
+            } for row in rows
+        ]
+
+    def insert_job_node_metric(
+        self,
+        job_id: int,
+        node_ip: str,
+        cpu_usage: float,
+        ram_usage: float,
+        disk_read_bytes: float = 0.0,
+        disk_write_bytes: float = 0.0,
+        collected_at: datetime | None = None,
+    ) -> None:
+        '''Insert a node-level metric sample for a job.'''
+        self._refresh_connection()
+        collected_at = collected_at or datetime.utcnow()
+        try:
+            self._cur.execute(
+                'INSERT INTO job_node_metrics (job_id, node_ip, collected_at, cpu_usage, ram_usage, disk_read_bytes, disk_write_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (
+                    job_id,
+                    node_ip,
+                    collected_at.isoformat(),
+                    cpu_usage,
+                    ram_usage,
+                    disk_read_bytes,
+                    disk_write_bytes,
+                )
+            )
+            self._con.commit()
+        except sqlite3.IntegrityError as exc:
+            raise Exception(f'Job {job_id} not found') from exc
+
+    def get_job_node_metrics(self, job_id: int) -> List[dict]:
+        '''Return all stored node-level metric samples for a job ordered by collection time.'''
+        self._refresh_connection()
+        self._cur.execute(
+            'SELECT id, job_id, node_ip, collected_at, cpu_usage, ram_usage, disk_read_bytes, disk_write_bytes FROM job_node_metrics WHERE job_id = ? ORDER BY collected_at ASC, node_ip ASC',
+            (job_id,)
+        )
+        rows = self._cur.fetchall()
+        return [
+            {
+                'id': row[0],
+                'job_id': row[1],
+                'node_ip': row[2],
+                'collected_at': row[3],
+                'cpu_usage': row[4],
+                'ram_usage': row[5],
+                'disk_read_bytes': row[6],
+                'disk_write_bytes': row[7],
             } for row in rows
         ]

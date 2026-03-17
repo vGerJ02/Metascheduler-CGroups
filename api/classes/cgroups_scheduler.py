@@ -164,7 +164,7 @@ class CgroupsScheduler(Scheduler):
         self.master_node.send_command(cmd, critical=False)
         print(f"✅ Assigned cpu.weight={weight} to cgroup '{full_path}'")
 
-    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float]]:
+    def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float, str]]:
         return self.sge.get_all_jobs_info() + self.hadoop.get_all_jobs_info()
 
 

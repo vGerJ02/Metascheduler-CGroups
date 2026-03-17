@@ -63,6 +63,18 @@ class JobMetricResponse:
     disk_write_bytes: float
 
 
+@dataclass
+class JobNodeMetricResponse:
+    id: int
+    job_id: int
+    node_ip: str
+    collected_at: datetime
+    cpu_usage: float
+    ram_usage: float
+    disk_read_bytes: float
+    disk_write_bytes: float
+
+
 @app.command("nodes-metrics", help="Get metrics for all nodes.")
 def nodes_metrics():
     response: Response = HTTP_Client().get('/cluster/nodes/metrics')
@@ -294,6 +306,37 @@ def job_metrics(id: Annotated[int, typer.Argument(help="The Job ID.")]):
     for metric in metrics:
         table.add_row(
             str(metric.collected_at),
+            f"{metric.cpu_usage:.2f}",
+            f"{metric.ram_usage:.2f}",
+            f"{metric.disk_read_bytes:.0f}",
+            f"{metric.disk_write_bytes:.0f}",
+        )
+
+    panel = Panel(table, border_style="green")
+    print(panel)
+
+
+@app.command("job-metrics-nodes", help="Get per-node metrics for a specific job.")
+def job_metrics_nodes(id: Annotated[int, typer.Argument(help="The Job ID.")]):
+    params = {}
+    params["owner"] = os.getenv("USER")
+    response: Response = HTTP_Client().get(f'/jobs/{id}/metrics/nodes', params)
+    metrics_raw = response.json()
+    metrics = [JobNodeMetricResponse(**metric) for metric in metrics_raw]
+
+    table = Table(title=f"Job Node Metrics (Job {id})", show_header=True,
+                  header_style="bold magenta")
+    table.add_column("Collected At", style="dim")
+    table.add_column("Node", style="dim")
+    table.add_column("CPU (%)", style="dim")
+    table.add_column("RAM (%)", style="dim")
+    table.add_column("Disk Read (B)", style="dim")
+    table.add_column("Disk Write (B)", style="dim")
+
+    for metric in metrics:
+        table.add_row(
+            str(metric.collected_at),
+            str(metric.node_ip),
             f"{metric.cpu_usage:.2f}",
             f"{metric.ram_usage:.2f}",
             f"{metric.disk_read_bytes:.0f}",
