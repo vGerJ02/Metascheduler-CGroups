@@ -278,12 +278,12 @@ class SGE(Scheduler):
 
     def get_all_jobs_info(
         self,
-    ) -> List[Tuple[int, int, float, float, str, float, float]]:
+    ) -> List[Tuple[int, int, float, float, str, float, float, str]]:
         """
         Get the information of all running jobs
 
         """
-        all_jobs_info: List[Tuple[int, int, float, float, str, float, float]] = []
+        all_jobs_info: List[Tuple[int, int, float, float, str, float, float, str]] = []
         for node in self.nodes:
             ps_output = node.send_command(
                 f"ps -eo pid,comm,nice,%cpu,%mem,ppid,user",
@@ -303,6 +303,7 @@ class SGE(Scheduler):
                         user,
                         io_by_pid.get(pid, (0.0, 0.0))[0],
                         io_by_pid.get(pid, (0.0, 0.0))[1],
+                        node.ip,
                     )
                     for pid, nice, cpu, mem, user in job_info
                 ]

@@ -118,6 +118,7 @@ class JobMonitorDaemon(metaclass=Singleton):
                     continue
 
                 usage_by_user = self._aggregate_usage_by_user(processes_info)
+                usage_by_user_by_node = self._aggregate_usage_by_user_and_node(processes_info)
                 if not usage_by_user:
                     log(
                         f'No usage grouped by user for scheduler {scheduler.name}. '
@@ -136,6 +137,12 @@ class JobMonitorDaemon(metaclass=Singleton):
                         )
                     db.insert_job_metric(
                         job.id_, cpu, ram, read_bytes, write_bytes, collected_at)
+
+                    for node_ip, usage_by_user_in_node in usage_by_user_by_node.items():
+                        n_cpu, n_ram, n_read_bytes, n_write_bytes = self._usage_for_job(
+                            job, running_jobs, usage_by_user_in_node)
+                        db.insert_job_node_metric(
+                            job.id_, node_ip, n_cpu, n_ram, n_read_bytes, n_write_bytes, collected_at)
         except Exception as exc:
             log(f'Error collecting metrics: {exc}')
 
@@ -161,6 +168,26 @@ class JobMonitorDaemon(metaclass=Singleton):
             usage[user]['read'] += process[5]
             usage[user]['write'] += process[6]
         return usage
+
+    def _aggregate_usage_by_user_and_node(self, processes_info):
+        '''Group CPU, RAM, and disk usage by process owner per node.'''
+        usage_by_node = {}
+        for process in processes_info:
+            if len(process) < 8:
+                continue
+            user = process[4]
+            node_ip = process[7]
+            if not user or not node_ip:
+                continue
+            if node_ip not in usage_by_node:
+                usage_by_node[node_ip] = {}
+            if user not in usage_by_node[node_ip]:
+                usage_by_node[node_ip][user] = {'cpu': 0.0, 'ram': 0.0, 'read': 0.0, 'write': 0.0}
+            usage_by_node[node_ip][user]['cpu'] += process[2]
+            usage_by_node[node_ip][user]['ram'] += process[3]
+            usage_by_node[node_ip][user]['read'] += process[5]
+            usage_by_node[node_ip][user]['write'] += process[6]
+        return usage_by_node
 
     def _usage_for_job(self, job: Job, running_jobs: List[Job], usage_by_user: dict[str, dict[str, float]]):
         '''Split the aggregated usage of a user across its running jobs.'''
