@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "name": "mixed-benchmarks",
+  "defaults": {
+    "queue": 1,
+    "delay_after_seconds": 1,
+    "on_error": "stop",
+    "hdfs_bin": "hdfs"
+  },
+  "jobs": [
+    {
+      "id": "sge-genesis-dna-cutoff",
+      "scheduler_type": "S",
+      "name": "genesis-safe-${ts}",
+      "queue": 1,
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 4"
+    },
+    {
+      "id": "hadoop-mrbench",
+      "scheduler_type": "H",
+      "name": "hadoop-mrbench-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "mrbench -numRuns 5 -maps 2 -reduces 1 -baseDir /user/gjaimejuan/mrbench",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/mrbench"
+        },
+        {
+          "type": "hdfs_mkdir",
+          "path": "/user/gjaimejuan"
+        }
+      ]
+    },
+    {
+      "id": "hadoop-gridmix",
+      "scheduler_type": "H",
+      "name": "hadoop-gridmix-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-gridmix-*.jar",
+      "options": "-generate 1024 /user/gjaimejuan/gridmix -",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/gridmix"
+        },
+        {
+          "type": "hdfs_mkdir",
+          "path": "/user/gjaimejuan"
+        }
+      ],
+      "depends_on": [
+        "hadoop-mrbench"
+      ]
+    }
+  ]
+}
