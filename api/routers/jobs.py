@@ -108,8 +108,17 @@ def update_job(job_id: int, owner: str, job: PutJobModel):
 def update_job_status(job_id: int, owner: str, status: JobStatus):
     ''' Update the status of a job '''
     stored_job = read_job(job_id, owner)
-    if stored_job.status.value is status.value:
-        return {'status': 'success', 'message': 'Job status not changed'}
+    if stored_job.status.value == status.value:
+        # Allow idempotent updates for terminal states when timing fields are missing.
+        if status in {JobStatus.COMPLETED, JobStatus.ERROR} and (
+            not getattr(stored_job, 'completed_at', None)
+            or getattr(stored_job, 'execution_time_seconds', None) is None
+        ):
+            pass
+        elif status == JobStatus.RUNNING and not getattr(stored_job, 'started_at', None):
+            pass
+        else:
+            return {'status': 'success', 'message': 'Job status not changed'}
     try:
         DatabaseHelper().update_job_status(job_id, owner, status)
         return {'status': 'success', 'message': 'Job updated successfully ✅'}
