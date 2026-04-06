@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "name": "benchmark-ram-disk-cpu-hadoop",
+  "defaults": {
+    "queue": 1,
+    "delay_after_seconds": 5,
+    "on_error": "stop",
+    "hdfs_bin": "hdfs"
+  },
+  "jobs": [
+    {
+      "id": "hadoop-nnbench-create",
+      "scheduler_type": "H",
+      "name": "bench-nnbench-create-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "nnbench -operation create_write -maps 16 -reduces 4 -blockSize 1 -bytesToWrite 512 -numberOfFiles 5000 -replicationFactorPerFile 3 -baseDir /user/gjaimejuan/bench/nnbench",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/bench/nnbench"
+        },
+        {
+          "type": "hdfs_mkdir",
+          "path": "/user/gjaimejuan/bench"
+        }
+      ]
+    },
+    {
+      "id": "hadoop-nnbench-read",
+      "scheduler_type": "H",
+      "name": "bench-nnbench-read-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "nnbench -operation open_read -maps 16 -reduces 4 -numberOfFiles 5000 -baseDir /user/gjaimejuan/bench/nnbench",
+      "depends_on": [
+        "hadoop-nnbench-create"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-write",
+      "scheduler_type": "H",
+      "name": "bench-dfsio-write-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -write -nrFiles 20 -fileSize 4096 -resFile /tmp/dfsio_write.txt",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/benchmarks/TestDFSIO"
+        }
+      ],
+      "depends_on": [
+        "hadoop-nnbench-read"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-read",
+      "scheduler_type": "H",
+      "name": "bench-dfsio-read-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -read -nrFiles 20 -fileSize 4096 -resFile /tmp/dfsio_read.txt",
+      "depends_on": [
+        "hadoop-dfsio-write"
+      ]
+    },
+    {
+      "id": "hadoop-randomwriter",
+      "scheduler_type": "H",
+      "name": "bench-randomwriter-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar",
+      "options": "randomwriter -Dtest.randomwrite.total_bytes=21474836480 -Dtest.randomwrite.bytes_per_map=2147483648 -Dmapreduce.job.maps=10 -Dmapreduce.map.memory.mb=4096 -Dmapreduce.map.java.opts=-Xmx3276m /user/gjaimejuan/bench/randomwriter",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/bench/randomwriter"
+        }
+      ],
+      "depends_on": [
+        "hadoop-dfsio-read"
+      ]
+    },
+    {
+      "id": "hadoop-sleep-ram",
+      "scheduler_type": "H",
+      "name": "bench-sleep-ram-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "sleep -Dmapreduce.map.memory.mb=4096 -Dmapreduce.reduce.memory.mb=8192 -Dmapreduce.map.java.opts=-Xmx3276m -Dmapreduce.reduce.java.opts=-Xmx6553m -m 20 -r 8 -mt 90000 -rt 90000",
+      "depends_on": [
+        "hadoop-randomwriter"
+      ]
+    },
+    {
+      "id": "hadoop-pi",
+      "scheduler_type": "H",
+      "name": "bench-pi-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar",
+      "options": "pi -Dmapreduce.map.memory.mb=2048 -Dmapreduce.map.java.opts=-Xmx1638m 80 10000000",
+      "depends_on": [
+        "hadoop-sleep-ram"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-smallfiles",
+      "scheduler_type": "H",
+      "name": "bench-dfsio-smallfiles-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -write -nrFiles 500 -fileSize 10 -resFile /tmp/dfsio_small.txt",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/benchmarks/TestDFSIO"
+        }
+      ],
+      "depends_on": [
+        "hadoop-pi"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-cleanup",
+      "scheduler_type": "H",
+      "name": "bench-dfsio-cleanup-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -clean",
+      "depends_on": [
+        "hadoop-dfsio-smallfiles"
+      ]
+    }
+  ]
+}
