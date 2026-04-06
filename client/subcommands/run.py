@@ -202,63 +202,64 @@ def suite(
 
     print(Panel(table, border_style="green"))
 
-    if submitted_jobs:
-        summary = Table(title=f"Suite Final Summary: {payload.get('name', suite_path.name)}")
-        summary.add_column("Suite Job", style="dim")
-        summary.add_column("Meta Job ID", style="dim")
-        summary.add_column("Scheduler", style="dim")
-        summary.add_column("Status", style="dim")
-        summary.add_column("Exec Time (s)", style="dim")
-        summary.add_column("Started At", style="dim")
-        summary.add_column("Completed At", style="dim")
-
-        status_counts: dict[str, int] = {}
-        for submitted in submitted_jobs:
-            meta_job_id = submitted.get("meta_job_id")
-            if meta_job_id is None:
-                summary.add_row(
-                    submitted["suite_job_id"],
-                    "?",
-                    submitted["scheduler"],
-                    "UNKNOWN",
-                    "-",
-                    "-",
-                    "-",
-                )
-                status_counts["UNKNOWN"] = status_counts.get("UNKNOWN", 0) + 1
-                continue
-
-            try:
-                job = _fetch_job(owner, int(meta_job_id))
-                status = str(job.get("status", "UNKNOWN"))
-                exec_time = job.get("execution_time_seconds")
-                started_at = str(job.get("started_at"))
-                completed_at = str(job.get("completed_at"))
-                summary.add_row(
-                    submitted["suite_job_id"],
-                    str(meta_job_id),
-                    submitted["scheduler"],
-                    status,
-                    f"{exec_time:.2f}" if isinstance(exec_time, (int, float)) else "-",
-                    started_at,
-                    completed_at,
-                )
-                status_counts[status] = status_counts.get(status, 0) + 1
-            except Exception:
-                summary.add_row(
-                    submitted["suite_job_id"],
-                    str(meta_job_id),
-                    submitted["scheduler"],
-                    "FETCH_ERROR",
-                    "-",
-                    "-",
-                    "-",
-                )
-                status_counts["FETCH_ERROR"] = status_counts.get("FETCH_ERROR", 0) + 1
-
-        counters = ", ".join(f"{k}={v}" for k, v in sorted(status_counts.items())) or "none"
-        print(Panel(summary, border_style="cyan"))
-        print(Panel(f"[bold]Status counters:[/bold] {counters}", border_style="magenta"))
+    # Final summary disabled for now.
+    # if submitted_jobs:
+    #     summary = Table(title=f"Suite Final Summary: {payload.get('name', suite_path.name)}")
+    #     summary.add_column("Suite Job", style="dim")
+    #     summary.add_column("Meta Job ID", style="dim")
+    #     summary.add_column("Scheduler", style="dim")
+    #     summary.add_column("Status", style="dim")
+    #     summary.add_column("Exec Time (s)", style="dim")
+    #     summary.add_column("Started At", style="dim")
+    #     summary.add_column("Completed At", style="dim")
+    #
+    #     status_counts: dict[str, int] = {}
+    #     for submitted in submitted_jobs:
+    #         meta_job_id = submitted.get("meta_job_id")
+    #         if meta_job_id is None:
+    #             summary.add_row(
+    #                 submitted["suite_job_id"],
+    #                 "?",
+    #                 submitted["scheduler"],
+    #                 "UNKNOWN",
+    #                 "-",
+    #                 "-",
+    #                 "-",
+    #             )
+    #             status_counts["UNKNOWN"] = status_counts.get("UNKNOWN", 0) + 1
+    #             continue
+    #
+    #         try:
+    #             job = _fetch_job(owner, int(meta_job_id))
+    #             status = str(job.get("status", "UNKNOWN"))
+    #             exec_time = job.get("execution_time_seconds")
+    #             started_at = str(job.get("started_at"))
+    #             completed_at = str(job.get("completed_at"))
+    #             summary.add_row(
+    #                 submitted["suite_job_id"],
+    #                 str(meta_job_id),
+    #                 submitted["scheduler"],
+    #                 status,
+    #                 f"{exec_time:.2f}" if isinstance(exec_time, (int, float)) else "-",
+    #                 started_at,
+    #                 completed_at,
+    #             )
+    #             status_counts[status] = status_counts.get(status, 0) + 1
+    #         except Exception:
+    #             summary.add_row(
+    #                 submitted["suite_job_id"],
+    #                 str(meta_job_id),
+    #                 submitted["scheduler"],
+    #                 "FETCH_ERROR",
+    #                 "-",
+    #                 "-",
+    #                 "-",
+    #             )
+    #             status_counts["FETCH_ERROR"] = status_counts.get("FETCH_ERROR", 0) + 1
+    #
+    #     counters = ", ".join(f"{k}={v}" for k, v in sorted(status_counts.items())) or "none"
+    #     print(Panel(summary, border_style="cyan"))
+    #     print(Panel(f"[bold]Status counters:[/bold] {counters}", border_style="magenta"))
 
     if had_error:
         raise typer.Exit(1)

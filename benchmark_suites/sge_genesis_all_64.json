@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "name": "sge-genesis-all-64",
+  "defaults": {
+    "queue": 1,
+    "delay_after_seconds": 1,
+    "on_error": "stop"
+  },
+  "jobs": [
+    {
+      "id": "genesis-cryoem-all-atom",
+      "scheduler_type": "S",
+      "name": "genesis_cryoEM_All_atom-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_cryoEM_All_atom.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-cryoem-go-model",
+      "scheduler_type": "S",
+      "name": "genesis_cryoEM_Go_model-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_cryoEM_Go_model.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dna-cutoff",
+      "scheduler_type": "S",
+      "name": "genesis_dna_CUTOFF-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dna-pme",
+      "scheduler_type": "S",
+      "name": "genesis_dna_PME-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_PME.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-ppc-leap-nvt-langevin",
+      "scheduler_type": "S",
+      "name": "genesis_ppc_LEAP_NVT_LANGEVIN-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_ppc_LEAP_NVT_LANGEVIN.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dna-pme-nocons",
+      "scheduler_type": "S",
+      "name": "genesis_dna_PME_NOCONS-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_PME_NOCONS.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dppc-cutoff",
+      "scheduler_type": "S",
+      "name": "genesis_dppc_CUTOFF-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dppc-minimize",
+      "scheduler_type": "S",
+      "name": "genesis_dppc_MINIMIZE-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_MINIMIZE.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dppc-pme-nocons",
+      "scheduler_type": "S",
+      "name": "genesis_dppc_PME_NOCONS-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_PME_NOCONS.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-jac-param27-rest-rmsd-ext",
+      "scheduler_type": "S",
+      "name": "genesis_jac_param27_REST_RMSD_EXT-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_jac_param27_REST_RMSD_EXT.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-pops-pme",
+      "scheduler_type": "S",
+      "name": "genesis_pops_PME-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_pops_PME.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-jac-param27-rest-dihed",
+      "scheduler_type": "S",
+      "name": "genesis_jac_param27_REST_DIHED-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_jac_param27_REST_DIHED.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-dppc-vver-nvt-langevin",
+      "scheduler_type": "S",
+      "name": "genesis_dppc_VVER_NVT_LANGEVIN-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_VVER_NVT_LANGEVIN.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "genesis-tim-vver-nvt-bussi",
+      "scheduler_type": "S",
+      "name": "genesis_tim_VVER_NVT_BUSSI-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_tim_VVER_NVT_BUSSI.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    }
+  ]
+}

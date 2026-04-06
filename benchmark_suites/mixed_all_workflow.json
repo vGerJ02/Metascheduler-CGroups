@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "name": "cgroups-best-effort-mixed-all-workflow",
+  "defaults": {
+    "queue": 1,
+    "delay_after_seconds": 3,
+    "on_error": "stop",
+    "hdfs_bin": "hdfs"
+  },
+  "jobs": [
+    {
+      "id": "hadoop-nnbench-create",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-nnbench-create-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "nnbench -operation create_write -maps 16 -reduces 4 -blockSize 1 -bytesToWrite 512 -numberOfFiles 5000 -replicationFactorPerFile 3 -baseDir /user/gjaimejuan/mixed/nnbench",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/mixed/nnbench"
+        },
+        {
+          "type": "hdfs_mkdir",
+          "path": "/user/gjaimejuan/mixed"
+        }
+      ]
+    },
+    {
+      "id": "sge-genesis-cryoem-all-atom",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_cryoEM_All_atom-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_cryoEM_All_atom.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-nnbench-create"
+      ]
+    },
+    {
+      "id": "hadoop-nnbench-read",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-nnbench-read-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "nnbench -operation open_read -maps 16 -reduces 4 -numberOfFiles 5000 -baseDir /user/gjaimejuan/mixed/nnbench",
+      "depends_on": [
+        "sge-genesis-cryoem-all-atom"
+      ]
+    },
+    {
+      "id": "sge-genesis-cryoem-go-model",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_cryoEM_Go_model-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_cryoEM_Go_model.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-nnbench-read"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-write",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-dfsio-write-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -write -nrFiles 20 -fileSize 4096 -resFile /tmp/mixed_dfsio_write.txt",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/benchmarks/TestDFSIO"
+        }
+      ],
+      "depends_on": [
+        "sge-genesis-cryoem-go-model"
+      ]
+    },
+    {
+      "id": "sge-genesis-dna-cutoff",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dna_CUTOFF-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-dfsio-write"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-read",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-dfsio-read-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -read -nrFiles 20 -fileSize 4096 -resFile /tmp/mixed_dfsio_read.txt",
+      "depends_on": [
+        "sge-genesis-dna-cutoff"
+      ]
+    },
+    {
+      "id": "sge-genesis-dna-pme",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dna_PME-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_PME.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-dfsio-read"
+      ]
+    },
+    {
+      "id": "hadoop-randomwriter",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-randomwriter-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar",
+      "options": "randomwriter -Dtest.randomwrite.total_bytes=21474836480 -Dtest.randomwrite.bytes_per_map=2147483648 -Dmapreduce.job.maps=10 -Dmapreduce.map.memory.mb=4096 -Dmapreduce.map.java.opts=-Xmx3276m /user/gjaimejuan/mixed/randomwriter",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/mixed/randomwriter"
+        }
+      ],
+      "depends_on": [
+        "sge-genesis-dna-pme"
+      ]
+    },
+    {
+      "id": "sge-genesis-ppc-leap-nvt-langevin",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_ppc_LEAP_NVT_LANGEVIN-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_ppc_LEAP_NVT_LANGEVIN.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-randomwriter"
+      ]
+    },
+    {
+      "id": "hadoop-sleep-ram",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-sleep-ram-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "sleep -Dmapreduce.map.memory.mb=4096 -Dmapreduce.reduce.memory.mb=8192 -Dmapreduce.map.java.opts=-Xmx3276m -Dmapreduce.reduce.java.opts=-Xmx6553m -m 20 -r 8 -mt 90000 -rt 90000",
+      "depends_on": [
+        "sge-genesis-ppc-leap-nvt-langevin"
+      ]
+    },
+    {
+      "id": "sge-genesis-dna-pme-nocons",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dna_PME_NOCONS-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_PME_NOCONS.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-sleep-ram"
+      ]
+    },
+    {
+      "id": "hadoop-pi",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-pi-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar",
+      "options": "pi -Dmapreduce.map.memory.mb=2048 -Dmapreduce.map.java.opts=-Xmx1638m 80 10000000",
+      "depends_on": [
+        "sge-genesis-dna-pme-nocons"
+      ]
+    },
+    {
+      "id": "sge-genesis-dppc-cutoff",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dppc_CUTOFF-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-pi"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-smallfiles",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-dfsio-smallfiles-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -write -nrFiles 500 -fileSize 10 -resFile /tmp/mixed_dfsio_small.txt",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/benchmarks/TestDFSIO"
+        }
+      ],
+      "depends_on": [
+        "sge-genesis-dppc-cutoff"
+      ]
+    },
+    {
+      "id": "sge-genesis-dppc-minimize",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dppc_MINIMIZE-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_MINIMIZE.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-dfsio-smallfiles"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-cleanup",
+      "scheduler_type": "H",
+      "name": "mixed-hadoop-dfsio-cleanup-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -clean",
+      "depends_on": [
+        "sge-genesis-dppc-minimize"
+      ]
+    },
+    {
+      "id": "sge-genesis-dppc-pme-nocons",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dppc_PME_NOCONS-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_PME_NOCONS.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "hadoop-dfsio-cleanup"
+      ]
+    },
+    {
+      "id": "sge-genesis-jac-param27-rest-rmsd-ext",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_jac_param27_REST_RMSD_EXT-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_jac_param27_REST_RMSD_EXT.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-genesis-dppc-pme-nocons"
+      ]
+    },
+    {
+      "id": "sge-genesis-pops-pme",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_pops_PME-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_pops_PME.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-genesis-jac-param27-rest-rmsd-ext"
+      ]
+    },
+    {
+      "id": "sge-genesis-jac-param27-rest-dihed",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_jac_param27_REST_DIHED-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_jac_param27_REST_DIHED.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-genesis-pops-pme"
+      ]
+    },
+    {
+      "id": "sge-genesis-dppc-vver-nvt-langevin",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_dppc_VVER_NVT_LANGEVIN-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_VVER_NVT_LANGEVIN.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-genesis-jac-param27-rest-dihed"
+      ]
+    },
+    {
+      "id": "sge-genesis-tim-vver-nvt-bussi",
+      "scheduler_type": "S",
+      "name": "mixed-genesis_tim_VVER_NVT_BUSSI-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_tim_VVER_NVT_BUSSI.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-genesis-dppc-vver-nvt-langevin"
+      ]
+    }
+  ]
+}
