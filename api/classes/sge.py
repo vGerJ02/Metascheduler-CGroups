@@ -368,6 +368,36 @@ class SGE(Scheduler):
             if "sge_shepherd" in line:
                 sge_executors.append(int(line.split()[0]))
         if not sge_executors:
+            # Fallback for environments where sge_shepherd is not visible to the
+            # sampling user (e.g. restricted /proc visibility). In that case,
+            # sample by running job owners to avoid returning no live metrics.
+            running_owners = {
+                job.owner for job in self.running_jobs
+                if getattr(job, "status", None) == JobStatus.RUNNING and job.owner
+            }
+            if not running_owners:
+                return job_processes_pid_nice_cpu_mem
+            for line in lines:
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) < 7:
+                    continue
+                user = parts[6]
+                if user not in running_owners:
+                    continue
+                try:
+                    job_processes_pid_nice_cpu_mem.append(
+                        (
+                            int(parts[0]),
+                            int(parts[2]),
+                            float(parts[3]),
+                            float(parts[4]),
+                            user,
+                        )
+                    )
+                except ValueError:
+                    continue
             return job_processes_pid_nice_cpu_mem
         for line in lines:
             if not line:
