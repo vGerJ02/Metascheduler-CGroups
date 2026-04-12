@@ -212,7 +212,7 @@ class CgroupsScheduler(Scheduler):
             exists = self.master_node.send_command(check_cmd).strip()
             if exists == "MISSING":
                 print(f"🆕 Creating subcgroup {target_sub_cgroup}")
-                self.master_node.send_command(f"sudo mkdir -p '{target_sub_cgroup}'")
+                self._mkdir_p_with_mkdir(self.master_node, target_sub_cgroup)
             else:
                 print(f"✅ Subcgroup {target_sub_cgroup} already exists")
 
@@ -328,14 +328,35 @@ class CgroupsScheduler(Scheduler):
                 return parts[1], parts[2]
         return None, None
 
+    def _mkdir_p_with_mkdir(self, node: Node, path: str):
+        normalized = path.rstrip("/")
+        if not normalized:
+            return
+
+        parts = [part for part in normalized.split("/") if part]
+        current = "/" if normalized.startswith("/") else ""
+
+        for part in parts:
+            if current in {"", "/"}:
+                candidate = f"{current}{part}" if current else part
+            else:
+                candidate = f"{current}/{part}"
+
+            check_cmd = f"test -d '{candidate}' && echo 'EXISTS' || echo 'MISSING'"
+            exists = node.send_command(check_cmd, critical=False).strip()
+            if exists == "MISSING":
+                node.send_command(f"sudo mkdir '{candidate}'", critical=False)
+
+            current = candidate
+
     def _ensure_v1_cgroup(self, path: str):
         check_cmd = f"test -d '{path}' && echo 'EXISTS' || echo 'MISSING'"
         exists = self.master_node.send_command(check_cmd, critical=False).strip()
         if exists == "MISSING":
-            self.master_node.send_command(f"sudo mkdir -p '{path}'", critical=False)
+            self._mkdir_p_with_mkdir(self.master_node, path)
         for node in self.nodes:
             try:
-                node.send_command(f"sudo mkdir -p '{path}'", critical=False)
+                self._mkdir_p_with_mkdir(node, path)
             except Exception:
                 continue
 
