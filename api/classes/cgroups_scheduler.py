@@ -143,11 +143,14 @@ class CgroupsScheduler(Scheduler):
             if not cpu_rel_path:
                 print(f"⚠️ Failed to get cpu cgroup path for PID {pids[0]}")
                 return
-            cpu_controller = cpu_controller or "cpu"
-            base_path = f"/sys/fs/cgroup/{cpu_controller}{cpu_rel_path}"
+            cpu_mount = self._resolve_v1_controller_mount(cpu_controller or "cpu")
+            if not cpu_mount:
+                print(f"⚠️ Could not resolve cpu controller mount from '{cpu_controller}'")
+                return
+            base_path = f"{cpu_mount}{cpu_rel_path}"
             full_path = f"{base_path}/{scheduler_type}"
             shares = self._v1_weight_to_shares(weight)
-            cmd = f"echo {shares} | sudo tee {full_path}/cpu.shares"
+            cmd = f"echo {shares} | sudo tee '{full_path}/cpu.shares' > /dev/null"
             self.master_node.send_command(cmd, critical=False)
             print(f"✅ Assigned cpu.shares={shares} to cgroup '{full_path}'")
             return
@@ -260,8 +263,11 @@ class CgroupsScheduler(Scheduler):
                 print(f"⚠️ No cpu cgroup found for PID {pid}")
                 continue
 
-            cpu_controller = cpu_controller or "cpu"
-            cpu_base_path = f"/sys/fs/cgroup/{cpu_controller}{cpu_rel_path}"
+            cpu_mount = self._resolve_v1_controller_mount(cpu_controller or "cpu")
+            if not cpu_mount:
+                print(f"⚠️ Could not resolve cpu controller mount from '{cpu_controller}'")
+                continue
+            cpu_base_path = f"{cpu_mount}{cpu_rel_path}"
             cpu_target = (
                 cpu_base_path if sub_cgroup_name in cpu_rel_path.split('/')
                 else f"{cpu_base_path}/{sub_cgroup_name}"
@@ -275,31 +281,36 @@ class CgroupsScheduler(Scheduler):
                     self.parent_cgroup_path = cpu_base_path
                 self.parent_cgroup_paths["cpu"] = self.parent_cgroup_path
                 if cpuacct_rel_path:
-                    cpuacct_controller = cpuacct_controller or cpu_controller
-                    cpuacct_base = f"/sys/fs/cgroup/{cpuacct_controller}{cpuacct_rel_path}"
-                    path_parts = cpuacct_base.split('/')
-                    if path_parts[-1] in ["hadoop", "sge"]:
-                        cpuacct_base = '/'.join(path_parts[:-1])
-                    self.parent_cgroup_paths["cpuacct"] = cpuacct_base
+                    cpuacct_mount = self._resolve_v1_controller_mount(cpuacct_controller or "cpuacct")
+                    if cpuacct_mount:
+                        cpuacct_base = f"{cpuacct_mount}{cpuacct_rel_path}"
+                        path_parts = cpuacct_base.split('/')
+                        if path_parts[-1] in ["hadoop", "sge"]:
+                            cpuacct_base = '/'.join(path_parts[:-1])
+                        self.parent_cgroup_paths["cpuacct"] = cpuacct_base
                 print(f"📦 Parent cgroup set to: {self.parent_cgroup_path}")
 
             self._ensure_v1_cgroup(cpu_target)
             self._move_pid_to_v1_cgroup(pid, cpu_target)
 
             if cpuacct_rel_path:
-                cpuacct_controller = cpuacct_controller or cpu_controller
-                cpuacct_base_path = f"/sys/fs/cgroup/{cpuacct_controller}{cpuacct_rel_path}"
-                cpuacct_target = (
-                    cpuacct_base_path if sub_cgroup_name in cpuacct_rel_path.split('/')
-                    else f"{cpuacct_base_path}/{sub_cgroup_name}"
-                )
-                if cpuacct_target != cpu_target:
-                    self._ensure_v1_cgroup(cpuacct_target)
-                    self._move_pid_to_v1_cgroup(pid, cpuacct_target)
+                cpuacct_mount = self._resolve_v1_controller_mount(cpuacct_controller or "cpuacct")
+                if cpuacct_mount:
+                    cpuacct_base_path = f"{cpuacct_mount}{cpuacct_rel_path}"
+                    cpuacct_target = (
+                        cpuacct_base_path if sub_cgroup_name in cpuacct_rel_path.split('/')
+                        else f"{cpuacct_base_path}/{sub_cgroup_name}"
+                    )
+                    if cpuacct_target != cpu_target:
+                        self._ensure_v1_cgroup(cpuacct_target)
+                        self._move_pid_to_v1_cgroup(pid, cpuacct_target)
 
             if mem_rel_path:
-                mem_controller = mem_controller or "memory"
-                mem_base_path = f"/sys/fs/cgroup/{mem_controller}{mem_rel_path}"
+                mem_mount = self._resolve_v1_controller_mount(mem_controller or "memory")
+                if not mem_mount:
+                    print(f"⚠️ Could not resolve memory controller mount from '{mem_controller}'")
+                    continue
+                mem_base_path = f"{mem_mount}{mem_rel_path}"
                 mem_target = (
                     mem_base_path if sub_cgroup_name in mem_rel_path.split('/')
                     else f"{mem_base_path}/{sub_cgroup_name}"
@@ -328,6 +339,33 @@ class CgroupsScheduler(Scheduler):
                 return parts[1], parts[2]
         return None, None
 
+    def _resolve_v1_controller_mount(self, controller_entry: Optional[str]) -> Optional[str]:
+        if not controller_entry:
+            return None
+
+        tokens = [token.strip() for token in controller_entry.split(",") if token.strip()]
+        candidates: list[str] = [controller_entry]
+
+        if "cpu" in tokens and "cpuacct" in tokens:
+            candidates.extend(["cpu,cpuacct", "cpuacct,cpu"])
+
+        candidates.extend(tokens)
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            path = f"/sys/fs/cgroup/{candidate}"
+            exists = self.master_node.send_command(
+                f"test -d '{path}' && echo 'EXISTS' || echo 'MISSING'",
+                critical=False,
+            ).strip()
+            if exists == "EXISTS":
+                return path
+
+        return None
+
     def _mkdir_p_with_mkdir(self, node: Node, path: str):
         normalized = path.rstrip("/")
         if not normalized:
@@ -345,6 +383,8 @@ class CgroupsScheduler(Scheduler):
             check_cmd = f"test -d '{candidate}' && echo 'EXISTS' || echo 'MISSING'"
             exists = node.send_command(check_cmd, critical=False).strip()
             if exists == "MISSING":
+                if candidate.startswith("/sys/fs/cgroup") and candidate.count("/") <= 4:
+                    continue
                 node.send_command(f"sudo mkdir '{candidate}'", critical=False)
 
             current = candidate
@@ -465,14 +505,13 @@ class CgroupsScheduler(Scheduler):
             return
         if self.cgroups_version == "v1":
             shares = self._v1_weight_to_shares(weight)
-            cmd = f"sudo bash -c \"echo {shares} > '{self.parent_cgroup_path}/cpu.shares'\""
+            cmd = f"echo {shares} | sudo tee '{self.parent_cgroup_path}/cpu.shares' > /dev/null"
             for node in self.nodes:
                 node.send_command(cmd, critical=False)
             print(f"✅ cpu.shares set to {shares} in {self.parent_cgroup_path}")
             return
 
-        cmd = f"sudo bash -c \"echo {weight} > '{self.parent_cgroup_path}/cpu.weight'\""
+        cmd = f"echo {weight} | sudo tee '{self.parent_cgroup_path}/cpu.weight' > /dev/null"
         for node in self.nodes:
             node.send_command(cmd, critical=False)
         print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
-
