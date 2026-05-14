@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "name": "cgroups-one-queue-short-mixed",
+  "defaults": {
+    "queue": 1,
+    "delay_after_seconds": 1,
+    "on_error": "stop",
+    "hdfs_bin": "hdfs"
+  },
+  "jobs": [
+    {
+      "id": "hadoop-mrbench-short",
+      "scheduler_type": "H",
+      "name": "hadoop-mrbench-short-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "mrbench -numRuns 8 -maps 4 -reduces 2 -baseDir /user/gjaimejuan/short_mixed/mrbench",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/user/gjaimejuan/short_mixed"
+        },
+        {
+          "type": "hdfs_mkdir",
+          "path": "/user/gjaimejuan/short_mixed"
+        }
+      ]
+    },
+    {
+      "id": "sge-dna-cutoff-short",
+      "scheduler_type": "S",
+      "name": "genesis-dna-cutoff-short-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dna_CUTOFF.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64"
+    },
+    {
+      "id": "hadoop-pi-short",
+      "scheduler_type": "H",
+      "name": "hadoop-pi-short-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-examples.jar",
+      "options": "pi 32 2000000",
+      "depends_on": [
+        "hadoop-mrbench-short"
+      ]
+    },
+    {
+      "id": "sge-dppc-minimize-short",
+      "scheduler_type": "S",
+      "name": "genesis-dppc-minimize-short-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_dppc_MINIMIZE.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-dna-cutoff-short"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-write-short",
+      "scheduler_type": "H",
+      "name": "hadoop-dfsio-write-short-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -write -nrFiles 8 -fileSize 512 -resFile /tmp/short_mixed_dfsio_write.txt",
+      "pre_steps": [
+        {
+          "type": "hdfs_rm",
+          "path": "/benchmarks/TestDFSIO"
+        }
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-read-short",
+      "scheduler_type": "H",
+      "name": "hadoop-dfsio-read-short-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -read -nrFiles 8 -fileSize 512 -resFile /tmp/short_mixed_dfsio_read.txt",
+      "depends_on": [
+        "hadoop-dfsio-write-short"
+      ]
+    },
+    {
+      "id": "hadoop-dfsio-clean-short",
+      "scheduler_type": "H",
+      "name": "hadoop-dfsio-clean-short-${ts}",
+      "path": "/usr/hdp/current/hadoop-mapreduce-client/hadoop-mapreduce-client-jobclient-tests.jar",
+      "options": "TestDFSIO -clean",
+      "depends_on": [
+        "hadoop-dfsio-read-short"
+      ]
+    },
+    {
+      "id": "sge-tim-vver-bussi-short",
+      "scheduler_type": "S",
+      "name": "genesis-tim-vver-bussi-short-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_tim_VVER_NVT_BUSSI.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-dppc-minimize-short"
+      ]
+    },
+    {
+      "id": "sge-pops-pme-short",
+      "scheduler_type": "S",
+      "name": "genesis-pops-pme-short-${ts}",
+      "path": "/home/mpiuser/benchmarks/benchs_install/genesis/jobs/genesis_pops_PME.sh",
+      "qsub_options": "-v InputData=inp_med -pe mpi 64",
+      "depends_on": [
+        "sge-tim-vver-bussi-short"
+      ]
+    }
+  ]
+}
