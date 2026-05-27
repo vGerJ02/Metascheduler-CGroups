@@ -138,7 +138,7 @@ class CgroupsScheduler(Scheduler):
 
         # Get the cgroup path from the first PID and build the full subcgroup path
         if self.cgroups_version == "v1":
-            cgroup_info = self.master_node.send_command(f"cat /proc/{pids[0]}/cgroup", critical=False)
+            cgroup_info = self.master_node.send_command(f"cat /proc/{pids[0]}/cgroup", critical=True)
             cpu_controller, cpu_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpu", "cpuacct"})
             if not cpu_rel_path:
                 print(f"⚠️ Failed to get cpu cgroup path for PID {pids[0]}")
@@ -151,12 +151,12 @@ class CgroupsScheduler(Scheduler):
             full_path = f"{base_path}/{scheduler_type}"
             shares = self._v1_weight_to_shares(weight)
             cmd = f"echo {shares} | sudo tee '{full_path}/cpu.shares' > /dev/null"
-            self.master_node.send_command(cmd, critical=False)
+            self.master_node.send_command(cmd, critical=True)
             print(f"✅ Assigned cpu.shares={shares} to cgroup '{full_path}'")
             return
 
         get_cgroup_path_cmd = f"cat /proc/{pids[0]}/cgroup | grep '^0::' | cut -d: -f3"
-        cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd, critical=False).strip()
+        cgroup_rel_path = self.master_node.send_command(get_cgroup_path_cmd, critical=True).strip()
         if not cgroup_rel_path:
             print(f"⚠️ Failed to get cgroup path for PID {pids[0]}")
             return
@@ -164,7 +164,7 @@ class CgroupsScheduler(Scheduler):
         full_path = f"/sys/fs/cgroup{cgroup_rel_path}/{scheduler_type}"
 
         cmd = f"echo {weight} | sudo tee {full_path}/cpu.weight"
-        self.master_node.send_command(cmd, critical=False)
+        self.master_node.send_command(cmd, critical=True)
         print(f"✅ Assigned cpu.weight={weight} to cgroup '{full_path}'")
 
     def get_all_jobs_info(self) -> List[Tuple[int, int, float, float, str, float, float, str]]:
@@ -254,7 +254,7 @@ class CgroupsScheduler(Scheduler):
     def _assign_pids_to_cgroup_v1(self, pids: list[str], sub_cgroup_name: str):
         """Assign PIDs to cgroups v1 (cpu/cpuacct + memory)."""
         for pid in pids:
-            cgroup_info = self.master_node.send_command(f"cat /proc/{pid}/cgroup", critical=False)
+            cgroup_info = self.master_node.send_command(f"cat /proc/{pid}/cgroup", critical=True)
             cpu_controller, cpu_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpu"})
             cpuacct_controller, cpuacct_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"cpuacct"})
             mem_controller, mem_rel_path = self._parse_v1_cgroup_path(cgroup_info, {"memory"})
@@ -359,7 +359,7 @@ class CgroupsScheduler(Scheduler):
             path = f"/sys/fs/cgroup/{candidate}"
             exists = self.master_node.send_command(
                 f"test -d '{path}' && echo 'EXISTS' || echo 'MISSING'",
-                critical=False,
+                critical=True,
             ).strip()
             if exists == "EXISTS":
                 return path
@@ -381,17 +381,17 @@ class CgroupsScheduler(Scheduler):
                 candidate = f"{current}/{part}"
 
             check_cmd = f"test -d '{candidate}' && echo 'EXISTS' || echo 'MISSING'"
-            exists = node.send_command(check_cmd, critical=False).strip()
+            exists = node.send_command(check_cmd, critical=True).strip()
             if exists == "MISSING":
                 if candidate.startswith("/sys/fs/cgroup") and candidate.count("/") <= 4:
                     continue
-                node.send_command(f"sudo mkdir '{candidate}'", critical=False)
+                node.send_command(f"sudo mkdir '{candidate}'", critical=True)
 
             current = candidate
 
     def _ensure_v1_cgroup(self, path: str):
         check_cmd = f"test -d '{path}' && echo 'EXISTS' || echo 'MISSING'"
-        exists = self.master_node.send_command(check_cmd, critical=False).strip()
+        exists = self.master_node.send_command(check_cmd, critical=True).strip()
         if exists == "MISSING":
             self._mkdir_p_with_mkdir(self.master_node, path)
         for node in self.nodes:
@@ -408,7 +408,7 @@ class CgroupsScheduler(Scheduler):
         )
         for node in self.nodes:
             try:
-                node.send_command(move_cmd, critical=False)
+                node.send_command(move_cmd, critical=True)
             except Exception:
                 continue
 
@@ -429,7 +429,7 @@ class CgroupsScheduler(Scheduler):
             return 0
         if self.cgroups_version == "v1":
             cmd = f"cat '{self.parent_cgroup_path}/cpu.shares'"
-            result = self.master_node.send_command(cmd, critical=False).strip()
+            result = self.master_node.send_command(cmd, critical=True).strip()
             try:
                 shares = int(result)
                 return self._v1_shares_to_weight(shares)
@@ -438,7 +438,7 @@ class CgroupsScheduler(Scheduler):
                 return 0
 
         cmd = f"cat '{self.parent_cgroup_path}/cpu.weight'"
-        result = self.master_node.send_command(cmd, critical=False).strip()
+        result = self.master_node.send_command(cmd, critical=True).strip()
         try:
             return int(result)
         except ValueError:
@@ -453,7 +453,7 @@ class CgroupsScheduler(Scheduler):
             if self.cgroups_version == "v1":
                 cpuacct_path = self.parent_cgroup_paths.get("cpuacct") or self.parent_cgroup_path
                 usage_file = f"{cpuacct_path}/cpuacct.usage"
-                raw = self.master_node.send_command(f"cat '{usage_file}'", critical=False).strip()
+                raw = self.master_node.send_command(f"cat '{usage_file}'", critical=True).strip()
                 current_usage = int(raw)
                 now = time.time()
                 elapsed = now - self._last_time_v1
@@ -470,7 +470,7 @@ class CgroupsScheduler(Scheduler):
 
             stat_file = f"{self.parent_cgroup_path}/cpu.stat"
             cmd = f"cat '{stat_file}'"
-            raw = self.master_node.send_command(cmd, critical=False)
+            raw = self.master_node.send_command(cmd, critical=True)
 
             usage_line = next(
                 (l for l in raw.splitlines() if l.startswith("usage_usec")),
@@ -507,11 +507,11 @@ class CgroupsScheduler(Scheduler):
             shares = self._v1_weight_to_shares(weight)
             cmd = f"echo {shares} | sudo tee '{self.parent_cgroup_path}/cpu.shares' > /dev/null"
             for node in self.nodes:
-                node.send_command(cmd, critical=False)
+                node.send_command(cmd, critical=True)
             print(f"✅ cpu.shares set to {shares} in {self.parent_cgroup_path}")
             return
 
         cmd = f"echo {weight} | sudo tee '{self.parent_cgroup_path}/cpu.weight' > /dev/null"
         for node in self.nodes:
-            node.send_command(cmd, critical=False)
+            node.send_command(cmd, critical=True)
         print(f"✅ cpu.weight set to {weight} in {self.parent_cgroup_path}")
